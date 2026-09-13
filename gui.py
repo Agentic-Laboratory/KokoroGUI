@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import logging
 import re
 import queue
 import playback
@@ -24,6 +25,18 @@ ctk.ThemeManager.theme["CTkFont"]["size"] = DEFAULT_FONT_SIZE
 CONFIG_FILE = "config.json"
 PRESETS_DIR = "presets"
 FX_PRESETS_DIR = os.path.join(PRESETS_DIR, "fx")
+APP_LOGGERS = ("gui", "kokoro_engine", "playback")
+
+
+def configure_debug_logging(enabled):
+    """Enable diagnostic output for this application without enabling dependencies."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    level = logging.DEBUG if enabled else logging.WARNING
+    for logger_name in APP_LOGGERS:
+        logging.getLogger(logger_name).setLevel(level)
 
 class TTSApp(ctk.CTk):
     def __init__(self):
@@ -43,6 +56,7 @@ class TTSApp(ctk.CTk):
 
         # Load Settings
         self.settings = self.load_settings()
+        configure_debug_logging(self.settings["debug_logging"])
         self.font_size = self._parse_font_size(self.settings["font_size"])
         self._font_size_ratios = {}
         self.apply_settings()
@@ -103,6 +117,7 @@ class TTSApp(ctk.CTk):
         self.export_subtitles = ctk.BooleanVar(value=self.settings.get("export_subtitles", False))
         self.caching_enabled = ctk.BooleanVar(value=self.settings.get("caching", True))
         self.jit_enabled = ctk.BooleanVar(value=self.settings.get("jit_enabled", False))
+        self.debug_logging = ctk.BooleanVar(value=self.settings.get("debug_logging", False))
         self.normalize_audio = ctk.BooleanVar(value=self.settings.get("normalize", False))
         self.trim_silence = ctk.BooleanVar(value=self.settings.get("trim", False))
         self.apply_fx_var = ctk.BooleanVar(value=self.settings.get("apply_fx", True))
@@ -245,7 +260,7 @@ class TTSApp(ctk.CTk):
             self.voice_var, self.filename_var, self.output_format_var, self.output_dir_var,
             self.speed_var, self.volume_var, self.pitch_var,
             self.num_threads_var, self.split_pattern_var,
-            self.separate_files, self.combine_post, self.export_subtitles, self.caching_enabled,
+            self.separate_files, self.combine_post, self.export_subtitles, self.caching_enabled, self.debug_logging,
             self.normalize_audio, self.trim_silence, self.apply_fx_var,
             self.reverb_enabled, self.reverb_room_size, self.reverb_wet_level, self.reverb_damping, self.reverb_dry_level, self.reverb_width,
             self.eq_bass, self.eq_treble,
@@ -325,6 +340,7 @@ class TTSApp(ctk.CTk):
             "export_subtitles": False,
             "caching": True,
             "jit_enabled": False,
+            "debug_logging": False,
             "normalize": False,
             "trim": False,
             "apply_fx": True,
@@ -407,6 +423,7 @@ class TTSApp(ctk.CTk):
             self.settings['export_subtitles'] = self.export_subtitles.get()
             self.settings['caching'] = self.caching_enabled.get()
             self.settings['jit_enabled'] = self.jit_enabled.get()
+            self.settings['debug_logging'] = self.debug_logging.get()
             self.settings['normalize'] = self.normalize_audio.get()
             self.settings['trim'] = self.trim_silence.get()
             self.settings['apply_fx'] = self.apply_fx_var.get()
@@ -966,7 +983,7 @@ class TTSApp(ctk.CTk):
         prev_lang_combo.set(lang_display_map.get(self.preview_lang_var.get(), "American English"))
         prev_lang_combo.grid(row=0, column=1, padx=5, pady=5)
         
-        ctk.CTkButton(act_frame, text="🔊 Preview", width=100, fg_color="#2B719E", command=self.preview_mix).grid(row=0, column=2, padx=10)
+        ctk.CTkButton(act_frame, text="Preview", width=100, fg_color="#2B719E", command=self.preview_mix).grid(row=0, column=2, padx=10)
         
         # Save Row
         save_frame = ctk.CTkFrame(parent)
@@ -996,8 +1013,8 @@ class TTSApp(ctk.CTk):
         self.fx_preset_combo = ctk.CTkComboBox(pre_frame, values=["Select FX Preset..."], command=self.load_fx_preset, width=200)
         self.fx_preset_combo.pack(side="left", padx=(0,5))
         
-        ctk.CTkButton(pre_frame, text="💾 Save", width=60, command=self.save_fx_preset_dialog).pack(side="left", padx=2)
-        ctk.CTkButton(pre_frame, text="🔄", width=30, command=self.refresh_fx_presets).pack(side="left", padx=2)
+        ctk.CTkButton(pre_frame, text="Save", width=55, command=self.save_fx_preset_dialog).pack(side="left", padx=2)
+        ctk.CTkButton(pre_frame, text="Refresh", width=65, command=self.refresh_fx_presets).pack(side="left", padx=2)
         
         scroll = ctk.CTkScrollableFrame(parent)
         scroll.pack(fill="both", expand=True, padx=5, pady=5)
@@ -1196,8 +1213,8 @@ class TTSApp(ctk.CTk):
         self.preset_combo = ctk.CTkComboBox(preset_frame, values=["Select Preset..."], command=self.load_preset, width=150)
         self.preset_combo.pack(side="left", padx=(0,5))
         
-        ctk.CTkButton(preset_frame, text="💾", width=30, command=self.save_preset_dialog).pack(side="left", padx=2)
-        ctk.CTkButton(preset_frame, text="🔄", width=30, command=self.refresh_presets).pack(side="left", padx=2)
+        ctk.CTkButton(preset_frame, text="Save", width=55, command=self.save_preset_dialog).pack(side="left", padx=2)
+        ctk.CTkButton(preset_frame, text="Refresh", width=65, command=self.refresh_presets).pack(side="left", padx=2)
         
         self.refresh_presets()
 
@@ -1418,7 +1435,7 @@ class TTSApp(ctk.CTk):
         header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10,0))
         
         ctk.CTkLabel(header_frame, text="Kokoro TTS", font=self.ui_font("Roboto", 20, "bold")).pack(side="left", padx=5)
-        ctk.CTkButton(header_frame, text="⚙ Settings", width=80, height=28, command=self.open_settings).pack(side="right")
+        ctk.CTkButton(header_frame, text="Settings", width=80, height=28, command=self.open_settings).pack(side="right")
 
         # Main Tabs
         self.main_tabs = ctk.CTkTabview(self)
@@ -1469,14 +1486,14 @@ class TTSApp(ctk.CTk):
     def open_settings(self):
         toplevel = ctk.CTkToplevel(self)
         toplevel.title("Settings")
-        toplevel.geometry("400x455")
+        toplevel.geometry("400x525")
         toplevel.grab_set() # Modal
         
         # Center the window
         toplevel.update_idletasks()
         x = self.winfo_x() + (self.winfo_width() // 2) - (toplevel.winfo_width() // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (toplevel.winfo_height() // 2)
-        toplevel.geometry(f"400x455+{x}+{y}")
+        toplevel.geometry(f"400x525+{x}+{y}")
 
         frame = ctk.CTkFrame(toplevel)
         frame.pack(fill="both", expand=True, padx=20, pady=20)
@@ -1506,6 +1523,9 @@ class TTSApp(ctk.CTk):
         # JIT
         ctk.CTkLabel(frame, text="Real-time / JIT:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
         ctk.CTkCheckBox(frame, text="Enable JIT Generation (Streaming)", variable=self.jit_enabled, command=self.on_jit_toggle).pack(anchor="w", pady=5)
+
+        ctk.CTkLabel(frame, text="Diagnostics:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
+        ctk.CTkCheckBox(frame, text="Enable Debug Logging", variable=self.debug_logging, command=self.on_debug_logging_toggle).pack(anchor="w", pady=5)
         
         ctk.CTkButton(frame, text="Close", command=toplevel.destroy).pack(side="bottom", pady=10)
 
@@ -1533,6 +1553,10 @@ class TTSApp(ctk.CTk):
             self.start_btn.configure(text="Start Real-time JIT")
         else:
             self.start_btn.configure(text="Start Generation")
+        self.save_settings()
+
+    def on_debug_logging_toggle(self):
+        configure_debug_logging(self.debug_logging.get())
         self.save_settings()
 
     # --- Logic ---

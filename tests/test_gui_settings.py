@@ -9,6 +9,7 @@ def test_load_settings_defaults_when_no_config_file(tts_app):
     assert settings["voice"] == "af_heart"
     assert settings["lexicon"] == {}
     assert settings["caching"] is True
+    assert settings["debug_logging"] is False
 
 
 def test_load_settings_merges_existing_config_json(tts_app):
@@ -51,6 +52,28 @@ def test_save_settings_writes_json_with_current_vars(tts_app):
     with open(gui.CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     assert data["voice"] == "am_liam"
+
+
+def test_debug_logging_toggle_configures_app_loggers_and_persists(tts_app, monkeypatch):
+    import gui
+    basic_config = MagicMock()
+    get_logger = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr(gui.logging, "basicConfig", basic_config)
+    monkeypatch.setattr(gui.logging, "getLogger", get_logger)
+
+    tts_app.debug_logging.set(True)
+    tts_app.on_debug_logging_toggle()
+
+    basic_config.assert_called_once_with(
+        level=gui.logging.WARNING,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    assert get_logger.call_args_list == [call(name) for name in gui.APP_LOGGERS]
+    assert get_logger.return_value.setLevel.call_args_list == [call(gui.logging.DEBUG)] * len(gui.APP_LOGGERS)
+
+    with open(gui.CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["debug_logging"] is True
 
 
 def test_change_appearance_and_scaling_persist_to_settings(tts_app):
