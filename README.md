@@ -110,6 +110,24 @@ Install a PyTorch build that supports the target accelerator. The application fa
 
 ## Usage
 
+### Command Line
+
+Install the project to make the `kokoro-tts` command available:
+
+```bash
+python -m pip install -e .
+```
+
+Generate a WAV without starting the GUI:
+
+```bash
+kokoro-tts --text "Hello from Kokoro." --voice af_heart --out-dir audio_output
+```
+
+Use `kokoro-tts --help` to inspect the available commands and flags. See [CLI reference](docs/cli.md) for the full synthesis, FX, presets, voice mixing, and automation guide.
+
+### Graphical Interface
+
 1.  **Run the application:**
     -   **Windows:** Double-click `run.bat` or run `python main.py`
     -   **Other:** Run `python main.py`

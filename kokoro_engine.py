@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import asyncio
 import time
@@ -67,7 +68,7 @@ def get_thread_pipeline(lang_code="a"):
             device, _ = get_inference_device()
             thread_local.pipeline = KPipeline(lang_code=lang_code, device=device)
         except Exception as e:
-            print(f"Error init pipeline in thread {threading.get_ident()}: {e}")
+            print(f"Error init pipeline in thread {threading.get_ident()}: {e}", file=sys.stderr)
             return None
     return thread_local.pipeline
 
@@ -127,7 +128,7 @@ class KokoroEngine:
                 pattern = self._lexicon_cache[src]
                 text = pattern.sub(dest, text)
             except Exception as e:
-                print(f"Lexicon error for '{src}': {e}")
+                print(f"Lexicon error for '{src}': {e}", file=sys.stderr)
                 
         return text
 
@@ -173,7 +174,7 @@ class KokoroEngine:
                 try:
                     audio = scipy.signal.resample(audio, new_len)
                 except Exception as e:
-                    print(f"Resample failed: {e}")
+                    print(f"Resample failed: {e}", file=sys.stderr)
 
         # 4. Pedalboard FX
         fx_chain = []
@@ -274,7 +275,7 @@ class KokoroEngine:
                 # Pedalboard expects float32
                 audio = board(audio, sr)
             except Exception as e:
-                print(f"Pedalboard FX failed: {e}")
+                print(f"Pedalboard FX failed: {e}", file=sys.stderr)
 
         # 5. Normalization
         if config.get('normalize', False):
@@ -332,7 +333,7 @@ class KokoroEngine:
                 if t1.shape != t2.shape:
                     # Try to align? Usually kokoro voices are fixed size [510, 1, 256]
                     # If different, we might fail or warn.
-                    print(f"Warning: Voice shapes differ {t1.shape} vs {t2.shape}. Mixing might fail or produce garbage.")
+                    print(f"Warning: Voice shapes differ {t1.shape} vs {t2.shape}. Mixing might fail or produce garbage.", file=sys.stderr)
                 
                 # Apply operation
                 if op == 'add':
@@ -445,12 +446,12 @@ class KokoroEngine:
                         f.write(full_audio)
                     return True
                 except Exception as e:
-                    print(f"Preview write error: {e}")
+                    print(f"Preview write error: {e}", file=sys.stderr)
                     # Fallback
                     sf.write(output_path, full_audio, 24000)
                     return True
             except Exception as e:
-                print(f"Preview error: {e}")
+                print(f"Preview error: {e}", file=sys.stderr)
                 return False
 
         return await asyncio.to_thread(_gen)
@@ -524,7 +525,7 @@ class KokoroEngine:
                 with open(preset_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading preset {name}: {e}")
+                print(f"Error loading preset {name}: {e}", file=sys.stderr)
         return None
 
     def load_fx_preset(self, name):
@@ -537,7 +538,7 @@ class KokoroEngine:
                 with open(fx_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading FX preset {name}: {e}")
+                print(f"Error loading FX preset {name}: {e}", file=sys.stderr)
         return None
 
     def smart_split(self, text, chunk_size=3000):
@@ -588,7 +589,7 @@ class KokoroEngine:
                     current_time = end
             return True
         except Exception as e:
-            print(f"Failed to generate SRT: {e}")
+            print(f"Failed to generate SRT: {e}", file=sys.stderr)
             return False
 
     def process_chunk_task(self, chunk_data, progress_callback):
@@ -652,7 +653,7 @@ class KokoroEngine:
                 if all_exist and loaded_data:
                     cached_segments = loaded_data
             except Exception as e:
-                print(f"Cache check error: {e}")
+                print(f"Cache check error: {e}", file=sys.stderr)
                 cached_segments = []
 
         chunk_files = []
@@ -678,7 +679,7 @@ class KokoroEngine:
                 with AudioFile(path, 'w', samplerate=24000, num_channels=1) as f:
                     f.write(processed_audio)
             except Exception as e:
-                print(f"Pedalboard write failed: {e}. Fallback to soundfile.")
+                print(f"Pedalboard write failed: {e}. Fallback to soundfile.", file=sys.stderr)
                 sf.write(path, processed_audio, 24000)
             
             return {
@@ -721,7 +722,7 @@ class KokoroEngine:
                     try:
                         sf.write(cache_path, audio, 24000)
                     except Exception as e:
-                        print(f"Cache write error: {e}")
+                        print(f"Cache write error: {e}", file=sys.stderr)
 
                 # Process for output
                 res = process_and_save(graphemes, audio)
@@ -744,10 +745,13 @@ class KokoroEngine:
                             out_f.write(data)
                             if update_callback: update_callback((i + 1) / total_files)
                         except Exception as e:
-                            print(f"Failed to read segment {fp}: {e}")
+                            print(f"Failed to read segment {fp}: {e}", file=sys.stderr)
+                            return False
+                return True
             except Exception as e:
-                print(f"Combine failed: {e}")
-        await asyncio.to_thread(combine_worker)
+                print(f"Combine failed: {e}", file=sys.stderr)
+                return False
+        return await asyncio.to_thread(combine_worker)
 
     def start_conversion(self, text, config):
         # Resolve voice path once before distribution
@@ -778,6 +782,7 @@ class KokoroEngine:
         3. Playback thread consumes the queue.
         4. Buffer management (2 mins ahead).
         """
+        success = True
         try:
             if self.on_status: self.on_status("JIT: Preparing...", False)
             os.makedirs(config['out_dir'], exist_ok=True)
@@ -814,8 +819,7 @@ class KokoroEngine:
 
             if not all_text_segments:
                 if self.on_status: self.on_status("No text for JIT.", False)
-                if self.on_finish: self.on_finish()
-                return
+                return False
 
             # Queues and State
             audio_queue = asyncio.Queue()
@@ -827,6 +831,7 @@ class KokoroEngine:
             
             # --- Generation Loop ---
             async def generation_loop():
+                nonlocal success
                 nonlocal total_segments
                 try:
                     for i, (seg_text, seg_config) in enumerate(all_text_segments):
@@ -846,13 +851,15 @@ class KokoroEngine:
                             await audio_queue.put(cf)
                             generated_but_unplayed.append(cf)
                 except Exception as e:
-                    print(f"JIT Gen Error: {e}")
+                    success = False
+                    print(f"JIT Gen Error: {e}", file=sys.stderr)
                 finally:
                     # Always signal end
                     await audio_queue.put(None)
 
             # --- Playback Loop ---
             async def playback_loop():
+                nonlocal success
                 nonlocal played_segments
                 start_time = time.time()
                 try:
@@ -886,7 +893,8 @@ class KokoroEngine:
                             generated_but_unplayed.remove(item)
                             
                 except Exception as e:
-                    print(f"JIT Playback Error: {e}")
+                    success = False
+                    print(f"JIT Playback Error: {e}", file=sys.stderr)
                 finally:
                     playback_finished_event.set()
 
@@ -906,8 +914,11 @@ class KokoroEngine:
             all_work_so_far = played_segments + generated_but_unplayed
             if all_work_so_far:
                 combined_path = os.path.join(config['out_dir'], f"{config.get('filename', 'output')}_{config.get('time_id', '0')}_jit_output.wav")
-                await self.smart_combine([s['path'] for s in all_work_so_far], combined_path, None)
-                if self.on_status: self.on_status(f"JIT Output saved: {combined_path}", False)
+                if await self.smart_combine([s['path'] for s in all_work_so_far], combined_path, None):
+                    if self.on_status: self.on_status(f"JIT Output saved: {combined_path}", False)
+                else:
+                    success = False
+                    if self.on_status: self.on_status("JIT output could not be combined.", True)
 
             # Save remaining text
             if generated_but_unplayed:
@@ -926,14 +937,17 @@ class KokoroEngine:
                 with open(rem_path, "w", encoding="utf-8") as f:
                     f.write(remaining_text)
                 if self.on_status: self.on_status(f"Remaining text saved: {rem_path}", False)
+            return success and not self.cancel_event.is_set()
 
         except Exception as e:
-            print(f"JIT Critical Error: {e}")
+            print(f"JIT Critical Error: {e}", file=sys.stderr)
             if self.on_status: self.on_status(f"JIT Error: {e}", True)
+            return False
         finally:
             if self.on_finish: self.on_finish()
 
     async def _process_text_async(self, text, config):
+        success = True
         try:
             if self.on_status: self.on_status("Preparing text...", False)
             os.makedirs(config['out_dir'], exist_ok=True)
@@ -981,8 +995,7 @@ class KokoroEngine:
             total_chunks = len(tasks_data)
             if total_chunks == 0:
                 if self.on_status: self.on_status("No text to process.", False)
-                if self.on_finish: self.on_finish()
-                return
+                return False
 
             total_chars = sum(len(d[1]) for d in tasks_data)
             processed_chars = 0
@@ -1032,15 +1045,15 @@ class KokoroEngine:
                 
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        print(f"Chunk {i} failed: {result}")
+                        success = False
+                        print(f"Chunk {i} failed: {result}", file=sys.stderr)
                         if self.on_status: self.on_status(f"Error in chunk {i}", True)
                     else:
                         all_generated_files[i] = result
 
             if self.cancel_event.is_set():
                 if self.on_status: self.on_status("Conversion Cancelled.", False)
-                if self.on_finish: self.on_finish()
-                return
+                return False
 
             final_segment_list = []
             for sublist in all_generated_files:
@@ -1052,7 +1065,9 @@ class KokoroEngine:
 
             if config.get('export_subtitles', False) and final_segment_list:
                 srt_path = os.path.join(config['out_dir'], f"{config.get('filename', 'output')}_{config.get('time_id', '0')}_combined.srt")
-                self.generate_srt(final_segment_list, srt_path)
+                if not self.generate_srt(final_segment_list, srt_path):
+                    success = False
+                    if self.on_status: self.on_status("Subtitle generation failed.", True)
 
             if config.get('combine', True) and final_file_paths:
                 if self.on_status: self.on_status("Merging audio files...", False)
@@ -1066,7 +1081,10 @@ class KokoroEngine:
                     if self.on_progress:
                         self.on_progress(total_fraction * 100, elapsed, "00:00", f"Merging... {int(frac*100)}%")
                 
-                await self.smart_combine(final_file_paths, combine_path, on_merge_progress)
+                if not await self.smart_combine(final_file_paths, combine_path, on_merge_progress):
+                    success = False
+                    if self.on_status: self.on_status("Audio files could not be combined.", True)
+                    return False
                 
                 if not config.get('separate', True):
                     for p in final_file_paths:
@@ -1079,9 +1097,11 @@ class KokoroEngine:
 
             if self.on_progress:
                 self.on_progress(100, time.time() - start_time, "00:00", "Completed")
+            return success
 
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
             if self.on_status: self.on_status(f"Critical Error: {e}", True)
+            return False
         finally:
             if self.on_finish: self.on_finish()

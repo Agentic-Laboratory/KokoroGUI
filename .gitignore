@@ -130,6 +130,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
@@ -170,6 +171,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 /audio_output/
+/cache/
+/custom_voices/
 /ROADMAP.md
-/CLAUDE.md
 /tests/output/

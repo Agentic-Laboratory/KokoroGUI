@@ -1,13 +1,1 @@
-beautifulsoup4==4.14.3
-EbookLib==0.20
-kokoro==0.9.4
-numpy==2.4.1
-pypdf==6.16.1
-packaging
-scipy
-pedalboard
-soundfile==0.13.1
-sounddevice
-torch==2.13.0
-customtkinter
-packaging
+-e .
