@@ -8,6 +8,8 @@ On Linux, `sounddevice` needs the system PortAudio shared library
 `sounddevice` raises OSError - we catch that and degrade to a no-op instead
 of crashing import of kokoro_engine/gui on machines without it.
 """
+import threading
+
 import soundfile as sf
 
 try:
@@ -23,8 +25,8 @@ def play(path: str, blocking: bool = False) -> None:
 
     blocking=True waits for playback to finish (used to pace the JIT
     playback loop, matching the old `winsound.PlaySound(..., SND_FILENAME)`
-    behavior). blocking=False fires and forgets (used by preview buttons,
-    matching the old `SND_ASYNC` behavior).
+    behavior). blocking=False returns immediately while a daemon waiter
+    releases the PortAudio stream when the preview finishes.
     """
     if not AVAILABLE:
         return
@@ -32,6 +34,8 @@ def play(path: str, blocking: bool = False) -> None:
     sd.play(data, samplerate)
     if blocking:
         sd.wait()
+    else:
+        threading.Thread(target=sd.wait, daemon=True).start()
 
 
 def stop() -> None:

@@ -1856,6 +1856,7 @@ class TTSApp(ctk.CTk):
 
     def on_close(self):
         self.save_settings()
+        playback.stop()
         self.destroy()
 
 if __name__ == "__main__":
