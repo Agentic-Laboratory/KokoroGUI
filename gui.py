@@ -1524,7 +1524,9 @@ class TTSApp(ctk.CTk):
         self.lex_replace_var = ctk.StringVar()
         ctk.CTkEntry(add_frame, textvariable=self.lex_replace_var, width=150).pack(side="left", padx=5)
         
-        ctk.CTkButton(add_frame, text="Add Rule", command=self.add_lexicon_rule).pack(side="left", padx=10)
+        self.editing_lexicon_key = None
+        self.lex_save_button = ctk.CTkButton(add_frame, text="Add Rule", command=self.add_lexicon_rule)
+        self.lex_save_button.pack(side="left", padx=10)
 
         # 2. List
         self.lex_list_frame = ctk.CTkScrollableFrame(parent)
@@ -1546,11 +1548,21 @@ class TTSApp(ctk.CTk):
         if "lexicon" not in self.settings:
             self.settings["lexicon"] = {}
             
+        if self.editing_lexicon_key and self.editing_lexicon_key != orig:
+            self.settings["lexicon"].pop(self.editing_lexicon_key, None)
         self.settings["lexicon"][orig] = rep
+        self.editing_lexicon_key = None
         self.lex_orig_var.set("")
         self.lex_replace_var.set("")
+        self.lex_save_button.configure(text="Add Rule")
         self.save_settings()
         self.refresh_lexicon_list()
+
+    def edit_lexicon_rule(self, key):
+        self.lex_orig_var.set(key)
+        self.lex_replace_var.set(self.settings.get("lexicon", {}).get(key, ""))
+        self.editing_lexicon_key = key
+        self.lex_save_button.configure(text="Save Rule")
 
     def delete_lexicon_rule(self, key):
         if key in self.settings.get("lexicon", {}):
@@ -1575,6 +1587,7 @@ class TTSApp(ctk.CTk):
             ctk.CTkLabel(row, text="->", width=30).pack(side="left")
             ctk.CTkLabel(row, text=rep, width=150, anchor="w", font=self.ui_font("Consolas", 12)).pack(side="left", padx=10)
             
+            ctk.CTkButton(row, text="Edit", width=50, command=lambda k=orig: self.edit_lexicon_rule(k)).pack(side="right", padx=5)
             ctk.CTkButton(row, text="X", width=30, fg_color="#c42b1c", command=lambda k=orig: self.delete_lexicon_rule(k)).pack(side="right", padx=5)
 
     def create_widgets(self):

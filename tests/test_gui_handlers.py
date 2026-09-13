@@ -36,6 +36,23 @@ def test_delete_lexicon_rule_removes_key(tts_app):
     assert "hello" not in tts_app.settings["lexicon"]
 
 
+def test_edit_lexicon_rule_updates_and_renames_rule(tts_app):
+    tts_app.settings["lexicon"] = {"dives": "dive's"}
+
+    tts_app.edit_lexicon_rule("dives")
+
+    assert tts_app.lex_orig_var.get() == "dives"
+    assert tts_app.lex_replace_var.get() == "dive's"
+    assert tts_app.lex_save_button.cget("text") == "Save Rule"
+
+    tts_app.lex_orig_var.set("dived")
+    tts_app.lex_replace_var.set("dyved")
+    tts_app.add_lexicon_rule()
+
+    assert tts_app.settings["lexicon"] == {"dived": "dyved"}
+    assert tts_app.lex_save_button.cget("text") == "Add Rule"
+
+
 @pytest.mark.parametrize("start,delta,expected", [
     (1, -5, 1),
     (16, 5, 16),

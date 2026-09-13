@@ -76,6 +76,32 @@ These options affect reuse, streaming, diagnostics, and the application interfac
 | Font Size | `font_size` | Changes interface text size in pixels without changing window or widget dimensions. |
 | Lexicon | `lexicon` | A case-insensitive source-to-replacement dictionary applied before synthesis. For example, map `SQL` to `sequel` to force the preferred pronunciation. |
 
+### Pronunciation Lexicon
+
+The Lexicon replaces text before Kokoro generates speech. It is a spelling-based override, not a phonetic or IPA dictionary, so use a replacement spelling that produces the intended sound with the selected voice.
+
+| Original Text | Replacement | Result |
+|---|---|---|
+| `SQL` | `sequel` | Reads the acronym as a word. |
+| `dives` | `dyves` | Forces the long-I pronunciation in "He dives into the water." |
+
+Add rules in the **Lexicon** tab with the source text in **Original Text** and the pronunciation spelling in **Replacement**. Use **Edit** beside an existing rule to update its text or replacement without deleting it first. Preview the exact sentence after adding a rule because voices may handle invented spellings differently.
+
+### Included Technical And Utility Terms
+
+The default lexicon covers the acronyms and product names most common in technology work and water, gas, electric, and refuse utility material. Rules match standalone terms only, so `AI` does not change the letters inside a word such as "said."
+
+| Area | Included terms |
+|---|---|
+| Technology and development | `.NET`, `AI`, `API`, `APIs`, `AWS`, `C#`, `C++`, `CI/CD`, `CSV`, `DNS`, `GUI`, `HTML`, `HTTP`, `HTTPS`, `IDE`, `IP`, `IT`, `IoT`, `JSON`, `LAN`, `MFA`, `NLP`, `OCR`, `ODBC`, `OpenAI`, `PLC`, `REST`, `RPA`, `SaaS`, `SDK`, `SLA`, `SMTP`, `SSH`, `TCP/IP`, `UI`, `URL`, `UX`, `VPN`, `XML`, `YAML` |
+| Databases and data | `MS SQL`, `MySQL`, `NoSQL`, `PostgreSQL`, `SQL`, `SQLite` |
+| Water and wastewater | `AMI`, `AMR`, `CIS`, `CMMS`, `GIS`, `MDM`, `NPDES`, `SCADA`, `VFD`, `WTP`, `WWTP` |
+| Electric | `DER`, `kW`, `kWh`, `MW`, `MWh`, `NERC`, `OMS`, `PV`, `RTO` |
+| Gas | `BTU`, `CNG`, `LNG`, `Mcf`, `MMBtu`, `PSIG` |
+| Refuse | `MRF`, `MSW`, `RFID` |
+
+The entries are starting pronunciations. Keep a rule only after previewing it with the voice you use, and edit its replacement spelling if that voice needs a different cue.
+
 > **Common Mistake:** The cache is raw synthesis, not a complete rendered-file cache. Changing volume, normalization, trimming, or FX reprocesses the cached audio. The cache key already changes for new text, voice, language, and effective speed. Clear `cache/` when testing a changed Split By setting because that pattern is not part of the cache key.
 
 ## Audio Cleanup
@@ -130,12 +156,12 @@ The built-in generation presets use MP3. They are starting points, not fixed voi
 | Preset | Use | Key choices |
 |---|---|---|
 | Default | General short-form speech | `1.0x`, no processing. |
-| Narrative Training | Dense instructional narration | `0.9x`, natural newline breaks, normalized. |
+| Narrative Training | Dense instructional narration | `af_sky` at `0.8x` and 80% volume, normalized with Small Room FX. |
 | Audiobook Natural | Long-form fiction and nonfiction | `1.0x`, natural newline breaks, normalized. |
 | Accessibility Slow | Deliberate, easy-to-follow delivery | `0.75x`, natural newline breaks, normalized. |
 | Podcast Clean | Conversational spoken-word programs | `1.05x`, natural newline breaks, normalized. |
 
-The built-in FX presets serve distinct roles. Generated speech has no microphone noise or room rumble to remove, so leave FX off for normal narration.
+The built-in FX presets serve distinct roles. Generated speech has no microphone noise or room rumble to remove, so leave FX off for normal narration. Narrative Training is the exception because it uses Small Room FX deliberately.
 
 | FX preset | Use | Effect |
 |---|---|---|
