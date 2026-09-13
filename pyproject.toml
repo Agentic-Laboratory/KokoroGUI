@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kokoro-gui"
+version = "3.2.0"
+description = "Kokoro text-to-speech with GUI and command-line interfaces"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4==4.14.3",
+    "EbookLib==0.20",
+    "kokoro==0.9.4",
+    "numpy==2.4.1",
+    "pypdf==6.16.1",
+    "scipy",
+    "pedalboard",
+    "soundfile==0.13.1",
+    "sounddevice",
+    "torch==2.13.0",
+    "customtkinter",
+]
+
+[project.scripts]
+kokoro-tts = "kokoro_cli:main"
+
+[tool.setuptools]
+py-modules = ["gui", "kokoro_cli", "kokoro_engine", "main", "playback"]
