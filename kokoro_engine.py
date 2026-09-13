@@ -122,8 +122,10 @@ class KokoroEngine:
             try:
                 # Use cached pattern if available to avoid repeated recompilation overhead
                 if src not in self._lexicon_cache:
-                    # Escape the search term to treat it as literal text
-                    self._lexicon_cache[src] = re.compile(re.escape(src), re.IGNORECASE)
+                    # Match whole terms so short acronyms do not alter ordinary words.
+                    self._lexicon_cache[src] = re.compile(
+                        rf"(?<!\w){re.escape(src)}(?!\w)", re.IGNORECASE
+                    )
 
                 pattern = self._lexicon_cache[src]
                 text = pattern.sub(dest, text)

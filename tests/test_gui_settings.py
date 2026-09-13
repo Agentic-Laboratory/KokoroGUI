@@ -54,6 +54,21 @@ def test_save_settings_writes_json_with_current_vars(tts_app):
     assert data["voice"] == "am_liam"
 
 
+def test_save_settings_preserves_externally_added_lexicon_rules(tts_app):
+    import gui
+
+    tts_app.settings["lexicon"] = {"SQL": "sequel"}
+    tts_app._saved_lexicon = {"SQL": "sequel"}
+    with open(gui.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"lexicon": {"SQL": "sequel", "AI": "A I"}}, f)
+
+    tts_app.save_settings()
+
+    with open(gui.CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["lexicon"] == {"SQL": "sequel", "AI": "A I"}
+
+
 def test_debug_logging_toggle_configures_app_loggers_and_persists(tts_app, monkeypatch):
     import gui
     basic_config = MagicMock()

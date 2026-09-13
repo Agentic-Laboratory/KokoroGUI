@@ -6,6 +6,11 @@ def test_apply_lexicon_case_insensitive_replace(engine):
     assert result == "Hello planet"
 
 
+def test_apply_lexicon_replaces_only_standalone_terms(engine):
+    result = engine.apply_lexicon("AI aids said utility work", {"AI": "A I", "IT": "I T"})
+    assert result == "A I aids said utility work"
+
+
 def test_apply_lexicon_empty_dict_returns_unchanged(engine):
     assert engine.apply_lexicon("Hello world", {}) == "Hello world"
 

@@ -112,6 +112,7 @@ class TTSApp(ctk.CTk):
 
         # Load Settings
         self.settings = self.load_settings()
+        self._saved_lexicon = dict(self.settings["lexicon"])
         configure_debug_logging(self.settings["debug_logging"])
         self.font_size = self._parse_font_size(self.settings["font_size"])
         self._font_size_ratios = {}
@@ -544,11 +545,36 @@ class TTSApp(ctk.CTk):
             self.settings['gain_enabled'] = self.gain_enabled.get()
             self.settings['gain_db'] = self.gain_db.get()
 
+        self._merge_external_lexicon_rules()
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.settings, f, indent=4)
+            self._saved_lexicon = dict(self.settings["lexicon"])
         except Exception as e:
             print(f"Failed to save settings: {e}")
+
+    def _merge_external_lexicon_rules(self):
+        """Keep rules added to config.json while this GUI instance is open."""
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                disk_settings = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return
+
+        disk_lexicon = disk_settings.get("lexicon")
+        current_lexicon = self.settings.get("lexicon")
+        if not isinstance(disk_lexicon, dict) or not isinstance(current_lexicon, dict):
+            return
+
+        saved_lexicon = self._saved_lexicon
+        merged_lexicon = dict(disk_lexicon)
+        for source, replacement in current_lexicon.items():
+            if saved_lexicon.get(source) != replacement:
+                merged_lexicon[source] = replacement
+        for source in saved_lexicon:
+            if source not in current_lexicon:
+                merged_lexicon.pop(source, None)
+        self.settings["lexicon"] = merged_lexicon
 
     def apply_settings(self):
         ctk.set_appearance_mode(self.settings["appearance"])
