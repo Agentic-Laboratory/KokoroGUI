@@ -27,9 +27,34 @@ import playback
 import tempfile
 from kokoro import KPipeline
 
-# Suppress ebooklib warnings
-warnings.filterwarnings("ignore", category=UserWarning, module='ebooklib')
-warnings.filterwarnings("ignore", category=FutureWarning, module='ebooklib')
+KOKORO_REPO_ID = "hexgrad/Kokoro-82M"
+
+
+def configure_runtime_warnings():
+    """Hide verified upstream compatibility warnings without masking others."""
+    warnings.filterwarnings("ignore", category=UserWarning, module='ebooklib')
+    warnings.filterwarnings("ignore", category=FutureWarning, module='ebooklib')
+    warnings.filterwarnings(
+        "ignore",
+        message=r"dropout option adds dropout after all but last recurrent layer.*",
+        category=UserWarning,
+        module=r"torch\.nn\.modules\.rnn",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"`torch\.nn\.utils\.weight_norm` is deprecated.*",
+        category=FutureWarning,
+        module=r"torch\.nn\.utils\.weight_norm",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"`torch\.jit\.script` is deprecated.*",
+        category=DeprecationWarning,
+        module=r"torch\.jit\._script",
+    )
+
+
+configure_runtime_warnings()
 
 CUSTOM_VOICES_DIR = "custom_voices"
 CACHE_DIR = "cache"
@@ -66,7 +91,11 @@ def get_thread_pipeline(lang_code="a"):
     if current is None or getattr(current, "lang_code", None) != lang_code:
         try:
             device, _ = get_inference_device()
-            thread_local.pipeline = KPipeline(lang_code=lang_code, device=device)
+            thread_local.pipeline = KPipeline(
+                lang_code=lang_code,
+                device=device,
+                repo_id=KOKORO_REPO_ID,
+            )
         except Exception as e:
             print(f"Error init pipeline in thread {threading.get_ident()}: {e}", file=sys.stderr)
             return None
@@ -291,7 +320,12 @@ class KokoroEngine:
     async def init_pipeline_async(self, lang_code="a", notify=True):
         try:
             device, device_description = get_inference_device()
-            self.pipeline = await asyncio.to_thread(KPipeline, lang_code=lang_code, device=device)
+            self.pipeline = await asyncio.to_thread(
+                KPipeline,
+                lang_code=lang_code,
+                device=device,
+                repo_id=KOKORO_REPO_ID,
+            )
             if notify and self.on_status: self.on_status(f"Pipeline Initialized ({lang_code}, {device_description}).", False)
             return True
         except Exception as e:
@@ -406,6 +440,8 @@ class KokoroEngine:
                                 target_extra['fx_preset'] = preset['fx_preset']
                             if 'apply_fx' in preset:
                                 target_extra['apply_fx'] = preset['apply_fx']
+
+                    self.resolve_fx_preset(target_extra)
 
                     if fx_name:
                         fx_preset = self.load_fx_preset(fx_name)
@@ -542,6 +578,14 @@ class KokoroEngine:
             except Exception as e:
                 print(f"Error loading FX preset {name}: {e}", file=sys.stderr)
         return None
+
+    def resolve_fx_preset(self, config):
+        """Apply the effect values named by a generation preset, if present."""
+        fx_name = config.get('fx_preset')
+        if fx_name and fx_name != "Select FX Preset...":
+            fx_preset = self.load_fx_preset(fx_name)
+            if fx_preset:
+                config.update(fx_preset)
 
     def smart_split(self, text, chunk_size=3000):
         chunks = []
@@ -806,6 +850,8 @@ class KokoroEngine:
                             seg_config['trim_silence'] = preset['trim']
                         seg_config['format'] = 'wav' # Ensure preset doesn't override format to non-wav
                         seg_config['voice'] = self.resolve_voice_path(seg_config['voice'])
+
+                self.resolve_fx_preset(seg_config)
                 
                 if fx_name:
                     fx_preset = self.load_fx_preset(fx_name)
@@ -977,6 +1023,8 @@ class KokoroEngine:
                         seg_config['voice'] = self.resolve_voice_path(seg_config['voice'])
                     else:
                         if self.on_status: self.on_status(f"Warning: Preset '{speaker_name}' not found.", False)
+
+                self.resolve_fx_preset(seg_config)
 
                 if fx_name:
                     fx_preset = self.load_fx_preset(fx_name)

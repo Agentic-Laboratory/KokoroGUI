@@ -3,6 +3,7 @@ pipeline (kokoro_engine.py:568-705, 910-1061). caching=False throughout
 (via make_config's default) except where noted."""
 import asyncio
 import json
+from pathlib import Path
 
 
 def test_process_chunk_task_writes_named_part_files(engine, fake_pipeline, make_config, isolated_dirs):
@@ -98,6 +99,28 @@ def test_multispeaker_preset_and_fx_preset_layering(engine, fake_pipeline, make_
     assert captured["config"]["speed"] == 1.25
     assert captured["config"]["reverb_enabled"] is True
     assert captured["config"]["apply_fx"] is True
+
+
+def test_bundled_narrative_training_preset_resolves_its_fx(engine, fake_pipeline, make_config, isolated_dirs, monkeypatch):
+    monkeypatch.chdir(Path(__file__).parent.parent)
+    config = make_config(filename="narrative", time_id="1")
+    captured = {}
+    real_task = engine.process_chunk_task
+
+    def spy(chunk_data, progress_callback):
+        captured["config"] = chunk_data[2]
+        return real_task(chunk_data, progress_callback)
+
+    monkeypatch.setattr(engine, "process_chunk_task", spy)
+    asyncio.run(engine._process_text_async("[Narrative Training]: A narrated lesson.", config))
+
+    assert captured["config"]["voice"] == "af_sky"
+    assert captured["config"]["speed"] == 0.8
+    assert captured["config"]["volume"] == 0.8
+    assert captured["config"]["apply_fx"] is True
+    assert captured["config"]["fx_preset"] == "Small Room"
+    assert captured["config"]["reverb_enabled"] is True
+    assert captured["config"]["reverb_wet_level"] == 0.08
 
 
 def test_full_batch_conversion_leaves_inspectable_output(engine, fake_pipeline, make_config, timestamped_output_dir):
