@@ -77,6 +77,37 @@ https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 
     *Note: If you have issues with `torch`, visit [pytorch.org](https://pytorch.org/get-started/locally/) for specific installation instructions tailored to your OS and hardware.*
 
+### AMD GPU Acceleration on Linux
+
+Use this project with an AMD GPU by installing the ROCm build of PyTorch. Kokoro automatically selects the GPU through PyTorch's `cuda` API, which is also the API PyTorch uses for ROCm.
+
+The ROCm 7.1 profile targets Python 3.12 and requires a working ROCm 7.1 installation:
+
+```bash
+.venv-3.12/bin/python -m pip install --force-reinstall -r requirements-rocm.txt
+```
+
+Verify that PyTorch can access the GPU before starting the GUI:
+
+```bash
+.venv-3.12/bin/python -c "import torch; print(torch.cuda.is_available()); print(torch.version.hip); print(torch.cuda.get_device_name(0))"
+```
+
+The expected output is `True`, a HIP version, and your AMD GPU name. During synthesis, `rocm-smi` should show GPU activity and VRAM use.
+
+> **Important:** Use `requirements-rocm.txt` only on Linux systems with ROCm. Keep using `requirements.txt` for CPU, NVIDIA, Windows, and macOS setups.
+
+### Hardware Selection
+
+KokoroGUI selects an inference device when each pipeline starts. It uses the first available PyTorch backend in this order:
+
+1. `cuda` for NVIDIA CUDA and AMD ROCm.
+2. `mps` for Apple Silicon.
+3. `xpu` for Intel GPUs.
+4. `cpu` when no supported accelerator is available.
+
+Install a PyTorch build that supports the target accelerator. The application falls back to CPU when that build reports the accelerator as unavailable.
+
 ## Usage
 
 1.  **Run the application:**

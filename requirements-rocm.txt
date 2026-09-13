@@ -1,0 +1,4 @@
+# Linux AMD GPUs with ROCm 7.1. Install with: pip install --force-reinstall -r requirements-rocm.txt
+--extra-index-url https://download.pytorch.org/whl/rocm7.1
+-r requirements.txt
+torch==2.13.0+rocm7.1

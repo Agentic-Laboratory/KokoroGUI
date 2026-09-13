@@ -36,12 +36,36 @@ CACHE_DIR = "cache"
 # --- Thread Local Storage ---
 thread_local = threading.local()
 
+def get_inference_device():
+    """Return the PyTorch device and a user-facing description of it."""
+    if torch.cuda.is_available():
+        backend = "ROCm" if torch.version.hip else "CUDA"
+        try:
+            device_name = torch.cuda.get_device_name(0)
+        except Exception:
+            device_name = "GPU"
+        return "cuda", f"{backend} GPU: {device_name}"
+
+    mps = getattr(torch.backends, "mps", None)
+    if mps and mps.is_available():
+        return "mps", "Apple Silicon GPU"
+
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        try:
+            device_name = torch.xpu.get_device_name(0)
+        except Exception:
+            device_name = "GPU"
+        return "xpu", f"Intel XPU: {device_name}"
+
+    return "cpu", "CPU"
+
 def get_thread_pipeline(lang_code="a"):
     """Get or create a KPipeline instance for the current thread."""
     current = getattr(thread_local, "pipeline", None)
     if current is None or getattr(current, "lang_code", None) != lang_code:
         try:
-            thread_local.pipeline = KPipeline(lang_code=lang_code)
+            device, _ = get_inference_device()
+            thread_local.pipeline = KPipeline(lang_code=lang_code, device=device)
         except Exception as e:
             print(f"Error init pipeline in thread {threading.get_ident()}: {e}")
             return None
@@ -263,8 +287,9 @@ class KokoroEngine:
 
     async def init_pipeline_async(self, lang_code="a", notify=True):
         try:
-            self.pipeline = await asyncio.to_thread(KPipeline, lang_code=lang_code)
-            if notify and self.on_status: self.on_status(f"Pipeline Initialized ({lang_code}).", False)
+            device, device_description = get_inference_device()
+            self.pipeline = await asyncio.to_thread(KPipeline, lang_code=lang_code, device=device)
+            if notify and self.on_status: self.on_status(f"Pipeline Initialized ({lang_code}, {device_description}).", False)
             return True
         except Exception as e:
             msg = f"Pipeline Init Failed: {e}"

@@ -110,7 +110,7 @@ class FakePipeline:
 def fake_pipeline(monkeypatch):
     fp = FakePipeline()
     monkeypatch.setattr(kokoro_engine, "get_thread_pipeline", lambda lang_code="a": fp)
-    monkeypatch.setattr(kokoro_engine, "KPipeline", lambda lang_code="a": fp)
+    monkeypatch.setattr(kokoro_engine, "KPipeline", lambda lang_code="a", device=None: fp)
     return fp
 
 
