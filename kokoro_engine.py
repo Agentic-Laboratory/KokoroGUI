@@ -598,32 +598,65 @@ class KokoroEngine:
                 config.update(fx_preset)
 
     def smart_split(self, text, chunk_size=3000):
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+
+        def split_oversized_text(value):
+            if len(value) <= chunk_size:
+                return [value]
+
+            # Prefer sentence boundaries, then words, so unformatted prose has
+            # a bounded first JIT block instead of waiting for the full input.
+            sentences = re.split(r"(?<=[.!?])\s+", value)
+            pieces = []
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                if len(sentence) <= chunk_size:
+                    pieces.append(sentence)
+                    continue
+
+                current_words = []
+                current_length = 0
+                for word in sentence.split():
+                    if len(word) > chunk_size:
+                        if current_words:
+                            pieces.append(" ".join(current_words))
+                            current_words = []
+                            current_length = 0
+                        pieces.extend(word[i:i + chunk_size] for i in range(0, len(word), chunk_size))
+                    elif current_words and current_length + 1 + len(word) > chunk_size:
+                        pieces.append(" ".join(current_words))
+                        current_words = [word]
+                        current_length = len(word)
+                    else:
+                        current_words.append(word)
+                        current_length += len(word) + (1 if current_length else 0)
+                if current_words:
+                    pieces.append(" ".join(current_words))
+            return pieces
+
         chunks = []
-        current_chunk = []
-        current_len = 0
-        paragraphs = text.split('\n\n')
-        
-        for para in paragraphs:
-            if len(para) > chunk_size:
-                lines = para.split('\n')
-                for line in lines:
-                    if current_len + len(line) > chunk_size and current_chunk:
-                        chunks.append("\n".join(current_chunk))
-                        current_chunk = []
-                        current_len = 0
-                    current_chunk.append(line)
-                    current_len += len(line)
-            else:
-                if current_len + len(para) > chunk_size and current_chunk:
-                    chunks.append("\n\n".join(current_chunk))
-                    current_chunk = []
-                    current_len = 0
-                current_chunk.append(para)
-                current_len += len(para)
-        
-        if current_chunk:
-            chunks.append("\n\n".join(current_chunk))
-        return [c for c in chunks if c.strip()]
+        current = ""
+        for paragraph in text.split("\n\n"):
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+
+            pieces = split_oversized_text(paragraph)
+            for index, piece in enumerate(pieces):
+                separator = "\n\n" if index == 0 else " "
+                candidate = piece if not current else current + separator + piece
+                if current and len(candidate) > chunk_size:
+                    chunks.append(current)
+                    current = piece
+                else:
+                    current = candidate
+
+        if current:
+            chunks.append(current)
+        return chunks
 
     def generate_srt(self, segments, output_path):
         def format_time(seconds):
@@ -648,7 +681,7 @@ class KokoroEngine:
             print(f"Failed to generate SRT: {e}", file=sys.stderr)
             return False
 
-    def process_chunk_task(self, chunk_data, progress_callback):
+    def process_chunk_task(self, chunk_data, progress_callback, result_callback=None, pipeline=None):
         index, text, config = chunk_data
         if self.cancel_event.is_set(): return []
 
@@ -716,6 +749,12 @@ class KokoroEngine:
         sub_idx = 0
         base_name = f"{config.get('filename', 'output')}_{config.get('time_id', '0')}_part{index}"
 
+        def publish_result(result):
+            chunk_files.append(result)
+            if result_callback:
+                return result_callback(result) is not False
+            return True
+
         # Function to process raw audio (from cache or gen) into final output
         def process_and_save(graphemes, raw_audio):
             nonlocal sub_idx
@@ -752,11 +791,12 @@ class KokoroEngine:
                 if progress_callback: progress_callback(len(graphemes), graphemes)
                 
                 res = process_and_save(graphemes, audio)
-                chunk_files.append(res)
+                if not publish_result(res):
+                    break
                 sub_idx += 1
         else:
             # Generate
-            pipeline = get_thread_pipeline(lang_code)
+            pipeline = pipeline if pipeline is not None else get_thread_pipeline(lang_code)
             if not pipeline: raise RuntimeError(f"Failed to initialize pipeline ({lang_code}) in thread.")
 
             generator = pipeline(text, voice=config['voice'], speed=eff_speed, split_pattern=config['split_pattern'])
@@ -782,7 +822,8 @@ class KokoroEngine:
 
                 # Process for output
                 res = process_and_save(graphemes, audio)
-                chunk_files.append(res)
+                if not publish_result(res):
+                    break
                 sub_idx += 1
             
         return chunk_files
@@ -836,7 +877,7 @@ class KokoroEngine:
         1. Parse text into segments.
         2. Generation thread fills a queue.
         3. Playback thread consumes the queue.
-        4. Buffer management (2 mins ahead).
+        4. Keep a short playback buffer.
         """
         success = True
         try:
@@ -880,12 +921,30 @@ class KokoroEngine:
                 return False
 
             # Queues and State
-            audio_queue = asyncio.Queue()
+            # Keep a short lead while preventing generation from getting far
+            # ahead of playback and retaining unnecessary WAVs in memory/state.
+            audio_queue = asyncio.Queue(maxsize=3)
             played_segments = []
             generated_but_unplayed = []
             total_segments = len(all_text_segments)
             
             playback_finished_event = asyncio.Event()
+            stop_publishing = threading.Event()
+            loop = asyncio.get_running_loop()
+
+            async def publish_generated_segment(item):
+                generated_but_unplayed.append(item)
+                while not self.cancel_event.is_set() and not stop_publishing.is_set():
+                    try:
+                        await asyncio.wait_for(audio_queue.put(item), timeout=0.1)
+                        return True
+                    except asyncio.TimeoutError:
+                        continue
+                return False
+
+            def publish_from_generation_thread(item):
+                future = asyncio.run_coroutine_threadsafe(publish_generated_segment(item), loop)
+                return future.result()
             
             # --- Generation Loop ---
             async def generation_loop():
@@ -894,26 +953,26 @@ class KokoroEngine:
                 try:
                     for i, (seg_text, seg_config) in enumerate(all_text_segments):
                         if self.cancel_event.is_set(): break
-                        
-                        while audio_queue.qsize() > 10 and not self.cancel_event.is_set():
-                            await asyncio.sleep(0.5)
-                        
-                        if self.cancel_event.is_set(): break
 
                         if self.on_status: 
                             self.on_status(f"JIT: Generating chunk {i+1}/{total_segments}...", False)
-                        
-                        chunk_files = await asyncio.to_thread(self.process_chunk_task, (i, seg_text, seg_config), None)
-                        
-                        for cf in chunk_files:
-                            await audio_queue.put(cf)
-                            generated_but_unplayed.append(cf)
+
+                        initialized_pipeline = self.pipeline
+                        if getattr(initialized_pipeline, "lang_code", None) != seg_config.get('lang_code', 'a'):
+                            initialized_pipeline = None
+                        await asyncio.to_thread(
+                            self.process_chunk_task,
+                            (i, seg_text, seg_config),
+                            None,
+                            publish_from_generation_thread,
+                            initialized_pipeline,
+                        )
                 except Exception as e:
                     success = False
                     print(f"JIT Gen Error: {e}", file=sys.stderr)
                 finally:
-                    # Always signal end
-                    await audio_queue.put(None)
+                    if not self.cancel_event.is_set() and not stop_publishing.is_set():
+                        await audio_queue.put(None)
 
             # --- Playback Loop ---
             async def playback_loop():
@@ -954,6 +1013,7 @@ class KokoroEngine:
                     success = False
                     print(f"JIT Playback Error: {e}", file=sys.stderr)
                 finally:
+                    stop_publishing.set()
                     playback_finished_event.set()
 
             # Start loops
@@ -961,6 +1021,7 @@ class KokoroEngine:
             play_task = asyncio.create_task(playback_loop())
             
             await playback_finished_event.wait()
+            await gen_task
             
             # --- Cleanup and Save State ---
             if self.cancel_event.is_set():

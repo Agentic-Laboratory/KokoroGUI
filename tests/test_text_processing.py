@@ -43,10 +43,10 @@ def test_parse_multispeaker_empty_segment_is_skipped(engine):
 
 # --- smart_split ---
 
-def test_smart_split_splits_on_paragraph_boundaries(engine):
+def test_smart_split_enforces_chunk_size_at_paragraph_boundaries(engine):
     text = "para one" + "\n\n" + ("x" * 20)
     chunks = engine.smart_split(text, chunk_size=15)
-    assert len(chunks) == 2
+    assert chunks == ["para one", "x" * 15, "x" * 5]
 
 
 def test_smart_split_respects_chunk_size_budget(engine):
@@ -64,6 +64,23 @@ def test_smart_split_single_short_text_returns_one_chunk(engine):
 
 def test_smart_split_filters_whitespace_only_chunks(engine):
     assert engine.smart_split("   ", chunk_size=3000) == []
+
+
+def test_smart_split_bounds_newline_free_prose(engine):
+    text = "First sentence. Second sentence. Third sentence. " * 20
+
+    chunks = engine.smart_split(text, chunk_size=80)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 80 for chunk in chunks)
+
+
+def test_smart_split_bounds_an_unbroken_word(engine):
+    text = "x" * 101
+
+    chunks = engine.smart_split(text, chunk_size=30)
+
+    assert chunks == ["x" * 30, "x" * 30, "x" * 30, "x" * 11]
 
 
 # --- extract_text_from_file ---
