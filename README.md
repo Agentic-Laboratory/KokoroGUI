@@ -126,6 +126,8 @@ kokoro-tts --text "Hello from Kokoro." --voice af_heart --out-dir audio_output
 
 Use `kokoro-tts --help` to inspect the available commands and flags. See [CLI reference](docs/cli.md) for the full synthesis, FX, presets, voice mixing, and automation guide.
 
+See [Settings Guide](SETTINGS.md) for every generation, processing, FX, and interface option, including hardware-specific Parallel Threads recommendations.
+
 ### Graphical Interface
 
 1.  **Run the application:**

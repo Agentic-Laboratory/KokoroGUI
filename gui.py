@@ -38,10 +38,66 @@ def configure_debug_logging(enabled):
     for logger_name in APP_LOGGERS:
         logging.getLogger(logger_name).setLevel(level)
 
+
+class Tooltip:
+    """Show brief help for a CustomTkinter control after a short hover."""
+
+    def __init__(self, widget, text, delay_ms=500):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self._after_id = None
+        self._window = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._cancel, add="+")
+        widget.bind("<ButtonPress>", self._cancel, add="+")
+
+    def _schedule(self, _event=None):
+        self._cancel()
+        self._after_id = self.widget.after(self.delay_ms, self._show)
+
+    def _cancel(self, _event=None):
+        if self._after_id is not None:
+            try:
+                self.widget.after_cancel(self._after_id)
+            except TclError:
+                pass
+            self._after_id = None
+        self._hide()
+
+    def _show(self):
+        self._after_id = None
+        if not self.widget.winfo_exists() or self._window is not None:
+            return
+        self._window = ctk.CTkToplevel(self.widget)
+        self._window.overrideredirect(True)
+        try:
+            self._window.attributes("-topmost", True)
+        except TclError:
+            pass
+        ctk.CTkLabel(
+            self._window,
+            text=self.text,
+            justify="left",
+            wraplength=360,
+            padx=10,
+            pady=6,
+        ).pack()
+        self._window.geometry(
+            f"+{self.widget.winfo_rootx() + 12}+{self.widget.winfo_rooty() + self.widget.winfo_height() + 8}"
+        )
+
+    def _hide(self):
+        if self._window is not None:
+            self._window.destroy()
+            self._window = None
+
+
 class TTSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._ui_callbacks = queue.Queue()
+        self._tooltips = []
         self.after(50, self._process_ui_callbacks)
 
         self.title("Kokoro TTS GUI")
@@ -217,6 +273,9 @@ class TTSApp(ctk.CTk):
 
     def _post_to_ui(self, callback):
         self._ui_callbacks.put(callback)
+
+    def add_tooltip(self, widget, text):
+        self._tooltips.append(Tooltip(widget, text))
 
     def _process_ui_callbacks(self):
         while True:
@@ -1012,24 +1071,33 @@ class TTSApp(ctk.CTk):
         
         self.fx_preset_combo = ctk.CTkComboBox(pre_frame, values=["Select FX Preset..."], command=self.load_fx_preset, width=200)
         self.fx_preset_combo.pack(side="left", padx=(0,5))
-        
-        ctk.CTkButton(pre_frame, text="Save", width=55, command=self.save_fx_preset_dialog).pack(side="left", padx=2)
-        ctk.CTkButton(pre_frame, text="Refresh", width=65, command=self.refresh_fx_presets).pack(side="left", padx=2)
+
+        save_fx_button = ctk.CTkButton(pre_frame, text="Save", width=55, command=self.save_fx_preset_dialog)
+        save_fx_button.pack(side="left", padx=2)
+        refresh_fx_button = ctk.CTkButton(pre_frame, text="Refresh", width=65, command=self.refresh_fx_presets)
+        refresh_fx_button.pack(side="left", padx=2)
+        self.add_tooltip(self.fx_preset_combo, "Load a saved set of FX values from presets/fx/.")
+        self.add_tooltip(save_fx_button, "Save the current FX values as a reusable FX preset.")
+        self.add_tooltip(refresh_fx_button, "Reload the list of FX preset files.")
         
         scroll = ctk.CTkScrollableFrame(parent)
         scroll.pack(fill="both", expand=True, padx=5, pady=5)
         scroll.grid_columnconfigure(0, weight=1)
 
         # Helper to create rows
-        def _create_slider(parent, label_text, variable, from_, to_, steps=100, label_attr=None):
+        def _create_slider(parent, label_text, variable, from_, to_, steps=100, label_attr=None, tooltip=None):
             row = ctk.CTkFrame(parent, fg_color="transparent")
             row.pack(fill="x", padx=5, pady=2)
             lbl = ctk.CTkLabel(row, text=label_text, width=120, anchor="w")
             lbl.pack(side="left")
             if label_attr: setattr(self, label_attr, lbl)
-            
-            ctk.CTkSlider(row, from_=from_, to=to_, number_of_steps=steps, variable=variable, 
-                          command=lambda v: self.update_fx_labels()).pack(side="left", fill="x", expand=True, padx=5)
+
+            slider = ctk.CTkSlider(row, from_=from_, to=to_, number_of_steps=steps, variable=variable,
+                                   command=lambda v: self.update_fx_labels())
+            slider.pack(side="left", fill="x", expand=True, padx=5)
+            if tooltip:
+                self.add_tooltip(lbl, tooltip)
+                self.add_tooltip(slider, tooltip)
 
         # --- 1. Dynamics ---
         dyn_frame = ctk.CTkFrame(scroll)
@@ -1040,47 +1108,57 @@ class TTSApp(ctk.CTk):
         # Compressor
         c_head = ctk.CTkFrame(dyn_frame, fg_color="transparent")
         c_head.pack(fill="x", padx=5)
-        ctk.CTkCheckBox(c_head, text="Compressor", variable=self.comp_enabled, font=self.ui_font("Roboto", 12, "bold")).pack(side="left")
+        compressor_checkbox = ctk.CTkCheckBox(c_head, text="Compressor", variable=self.comp_enabled, font=self.ui_font("Roboto", 12, "bold"))
+        compressor_checkbox.pack(side="left")
+        self.add_tooltip(compressor_checkbox, "Reduce loudness variation. Enable it before adjusting threshold and ratio.")
         
         c_body = ctk.CTkFrame(dyn_frame)
         c_body.pack(fill="x", padx=10, pady=2)
-        _create_slider(c_body, "Threshold", self.comp_threshold, -60, 0, 60, 'comp_thresh_label')
-        _create_slider(c_body, "Ratio", self.comp_ratio, 1, 20, 19, 'comp_ratio_label')
+        _create_slider(c_body, "Threshold", self.comp_threshold, -60, 0, 60, 'comp_thresh_label', "Levels above this dB value are compressed. Lower values compress more of the voice.")
+        _create_slider(c_body, "Ratio", self.comp_ratio, 1, 20, 19, 'comp_ratio_label', "Set the amount of compression above the threshold. Start around 4:1 for narration.")
         
         # Limiter
         l_head = ctk.CTkFrame(dyn_frame, fg_color="transparent")
         l_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(l_head, text="Limiter", variable=self.limiter_enabled, font=self.ui_font("Roboto", 12, "bold")).pack(side="left")
+        limiter_checkbox = ctk.CTkCheckBox(l_head, text="Limiter", variable=self.limiter_enabled, font=self.ui_font("Roboto", 12, "bold"))
+        limiter_checkbox.pack(side="left")
+        self.add_tooltip(limiter_checkbox, "Cap peaks to help prevent clipping after other effects.")
         
         l_body = ctk.CTkFrame(dyn_frame)
         l_body.pack(fill="x", padx=10, pady=2)
-        _create_slider(l_body, "Threshold", self.limiter_threshold, -12, 0, 24, 'lim_thresh_label')
+        _create_slider(l_body, "Threshold", self.limiter_threshold, -12, 0, 24, 'lim_thresh_label', "Set the maximum output peak in dB. A value close to 0 dB preserves more level.")
         
         # Gain
         g_head = ctk.CTkFrame(dyn_frame, fg_color="transparent")
         g_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(g_head, text="Gain", variable=self.gain_enabled, font=self.ui_font("Roboto", 12, "bold")).pack(side="left")
-        _create_slider(dyn_frame, "dB", self.gain_db, -20, 20, 80, 'gain_label')
+        gain_checkbox = ctk.CTkCheckBox(g_head, text="Gain", variable=self.gain_enabled, font=self.ui_font("Roboto", 12, "bold"))
+        gain_checkbox.pack(side="left")
+        self.add_tooltip(gain_checkbox, "Add or remove level late in the FX chain. Use Volume for a simple pre-FX adjustment.")
+        _create_slider(dyn_frame, "dB", self.gain_db, -20, 20, 80, 'gain_label', "Add or remove output level in decibels after the other enabled effects.")
 
         # --- 2. EQ & Filters ---
         eq_frame = ctk.CTkFrame(scroll)
         eq_frame.pack(fill="x", padx=5, pady=5)
         ctk.CTkLabel(eq_frame, text="EQ & Filters", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", padx=10, pady=5)
         
-        _create_slider(eq_frame, "Bass (LowShelf)", self.eq_bass, -20, 20, 40, 'bass_label')
-        _create_slider(eq_frame, "Treble (HighShelf)", self.eq_treble, -20, 20, 40, 'treble_label')
+        _create_slider(eq_frame, "Bass (LowShelf)", self.eq_bass, -20, 20, 40, 'bass_label', "Boost or cut frequencies below 250 Hz. Small changes, such as +2 dB, are usually enough.")
+        _create_slider(eq_frame, "Treble (HighShelf)", self.eq_treble, -20, 20, 40, 'treble_label', "Boost or cut frequencies above 4 kHz. Cut slightly if speech sounds sharp.")
         
         # HPF
         h_head = ctk.CTkFrame(eq_frame, fg_color="transparent")
         h_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(h_head, text="HighPass Filter", variable=self.highpass_enabled).pack(side="left")
-        _create_slider(eq_frame, "Freq (Hz)", self.highpass_freq, 20, 1000, 100, 'hpf_label')
+        highpass_checkbox = ctk.CTkCheckBox(h_head, text="HighPass Filter", variable=self.highpass_enabled)
+        highpass_checkbox.pack(side="left")
+        self.add_tooltip(highpass_checkbox, "Remove low-frequency rumble below the selected frequency.")
+        _create_slider(eq_frame, "Freq (Hz)", self.highpass_freq, 20, 1000, 100, 'hpf_label', "Set the low-frequency cutoff. Try 60 to 100 Hz for narration cleanup.")
         
         # LPF
         lpf_head = ctk.CTkFrame(eq_frame, fg_color="transparent")
         lpf_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(lpf_head, text="LowPass Filter", variable=self.lowpass_enabled).pack(side="left")
-        _create_slider(eq_frame, "Freq (Hz)", self.lowpass_freq, 1000, 20000, 100, 'lpf_label')
+        lowpass_checkbox = ctk.CTkCheckBox(lpf_head, text="LowPass Filter", variable=self.lowpass_enabled)
+        lowpass_checkbox.pack(side="left")
+        self.add_tooltip(lowpass_checkbox, "Remove high frequencies above the selected frequency. Use sparingly because it dulls speech.")
+        _create_slider(eq_frame, "Freq (Hz)", self.lowpass_freq, 1000, 20000, 100, 'lpf_label', "Set the high-frequency cutoff. Lower values produce a darker sound.")
 
         # --- 3. Spatial & Time ---
         sp_frame = ctk.CTkFrame(scroll)
@@ -1090,25 +1168,29 @@ class TTSApp(ctk.CTk):
         # Reverb
         r_head = ctk.CTkFrame(sp_frame, fg_color="transparent")
         r_head.pack(fill="x", padx=5)
-        ctk.CTkCheckBox(r_head, text="Reverb", variable=self.reverb_enabled, font=self.ui_font("Roboto", 12, "bold")).pack(side="left")
+        reverb_checkbox = ctk.CTkCheckBox(r_head, text="Reverb", variable=self.reverb_enabled, font=self.ui_font("Roboto", 12, "bold"))
+        reverb_checkbox.pack(side="left")
+        self.add_tooltip(reverb_checkbox, "Add room ambience. Keep the wet level low for intelligible narration.")
         
         r_body = ctk.CTkFrame(sp_frame)
         r_body.pack(fill="x", padx=10, pady=2)
-        _create_slider(r_body, "Room Size", self.reverb_room_size, 0, 1, 100, 'rev_room_label')
-        _create_slider(r_body, "Wet Level", self.reverb_wet_level, 0, 1, 100, 'rev_wet_label')
-        _create_slider(r_body, "Damping", self.reverb_damping, 0, 1, 100, None)
-        _create_slider(r_body, "Width", self.reverb_width, 0, 1, 100, None)
+        _create_slider(r_body, "Room Size", self.reverb_room_size, 0, 1, 100, 'rev_room_label', "Set the apparent room size. Start around 0.2 for subtle ambience.")
+        _create_slider(r_body, "Wet Level", self.reverb_wet_level, 0, 1, 100, 'rev_wet_label', "Set how much reverberated sound is mixed into the voice. Start around 0.1 for subtle ambience.")
+        _create_slider(r_body, "Damping", self.reverb_damping, 0, 1, 100, None, "Control how quickly high frequencies fade from the reverb tail.")
+        _create_slider(r_body, "Width", self.reverb_width, 0, 1, 100, None, "Set the stereo spread of the reverberated sound.")
 
         # Delay
         d_head = ctk.CTkFrame(sp_frame, fg_color="transparent")
         d_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(d_head, text="Delay", variable=self.delay_enabled, font=self.ui_font("Roboto", 12, "bold")).pack(side="left")
+        delay_checkbox = ctk.CTkCheckBox(d_head, text="Delay", variable=self.delay_enabled, font=self.ui_font("Roboto", 12, "bold"))
+        delay_checkbox.pack(side="left")
+        self.add_tooltip(delay_checkbox, "Repeat audio after a delay. This is a stylized effect and is usually unsuitable for narration.")
         
         d_body = ctk.CTkFrame(sp_frame)
         d_body.pack(fill="x", padx=10, pady=2)
-        _create_slider(d_body, "Time (s)", self.delay_time, 0, 2, 100, 'dly_time_label')
-        _create_slider(d_body, "Feedback", self.delay_feedback, 0, 1, 100, None)
-        _create_slider(d_body, "Mix", self.delay_mix, 0, 1, 100, 'dly_mix_label')
+        _create_slider(d_body, "Time (s)", self.delay_time, 0, 2, 100, 'dly_time_label', "Set the time between the original sound and the first repeat.")
+        _create_slider(d_body, "Feedback", self.delay_feedback, 0, 1, 100, None, "Set how much each delay repeat feeds into the next repeat.")
+        _create_slider(d_body, "Mix", self.delay_mix, 0, 1, 100, 'dly_mix_label', "Set the proportion of delayed sound in the final output.")
 
         # --- 4. Guitar / Modulation ---
         mod_frame = ctk.CTkFrame(scroll)
@@ -1118,27 +1200,35 @@ class TTSApp(ctk.CTk):
         # Chorus
         ch_head = ctk.CTkFrame(mod_frame, fg_color="transparent")
         ch_head.pack(fill="x", padx=5)
-        ctk.CTkCheckBox(ch_head, text="Chorus", variable=self.chorus_enabled).pack(side="left")
-        _create_slider(mod_frame, "Rate (Hz)", self.chorus_rate, 0.1, 10, 50, 'chorus_rate_label')
-        _create_slider(mod_frame, "Depth", self.chorus_depth, 0, 1, 50, None)
+        chorus_checkbox = ctk.CTkCheckBox(ch_head, text="Chorus", variable=self.chorus_enabled)
+        chorus_checkbox.pack(side="left")
+        self.add_tooltip(chorus_checkbox, "Add a doubled, modulated texture. Use it for character effects rather than clear narration.")
+        _create_slider(mod_frame, "Rate (Hz)", self.chorus_rate, 0.1, 10, 50, 'chorus_rate_label', "Set how quickly the chorus modulation moves.")
+        _create_slider(mod_frame, "Depth", self.chorus_depth, 0, 1, 50, None, "Set the strength of the chorus modulation.")
         
         # Distortion
         di_head = ctk.CTkFrame(mod_frame, fg_color="transparent")
         di_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(di_head, text="Distortion", variable=self.distortion_enabled).pack(side="left")
-        _create_slider(mod_frame, "Drive (dB)", self.distortion_drive, 0, 60, 60, 'dist_drive_label')
+        distortion_checkbox = ctk.CTkCheckBox(di_head, text="Distortion", variable=self.distortion_enabled)
+        distortion_checkbox.pack(side="left")
+        self.add_tooltip(distortion_checkbox, "Add saturation and harmonic distortion. Low values are already audible.")
+        _create_slider(mod_frame, "Drive (dB)", self.distortion_drive, 0, 60, 60, 'dist_drive_label', "Set how strongly the distortion saturates the audio.")
         
         # Phaser
         ph_head = ctk.CTkFrame(mod_frame, fg_color="transparent")
         ph_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(ph_head, text="Phaser", variable=self.phaser_enabled).pack(side="left")
-        _create_slider(mod_frame, "Rate (Hz)", self.phaser_rate, 0.1, 10, 50, 'phaser_rate_label')
+        phaser_checkbox = ctk.CTkCheckBox(ph_head, text="Phaser", variable=self.phaser_enabled)
+        phaser_checkbox.pack(side="left")
+        self.add_tooltip(phaser_checkbox, "Sweep a filtered phase effect for stylized voices.")
+        _create_slider(mod_frame, "Rate (Hz)", self.phaser_rate, 0.1, 10, 50, 'phaser_rate_label', "Set how quickly the phaser sweep moves.")
         
         # Clipping
         cl_head = ctk.CTkFrame(mod_frame, fg_color="transparent")
         cl_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(cl_head, text="Clipping", variable=self.clipping_enabled).pack(side="left")
-        _create_slider(mod_frame, "Threshold (dB)", self.clipping_thresh, -20, 0, 40, 'clip_thresh_label')
+        clipping_checkbox = ctk.CTkCheckBox(cl_head, text="Clipping", variable=self.clipping_enabled)
+        clipping_checkbox.pack(side="left")
+        self.add_tooltip(clipping_checkbox, "Hard-limit peaks, adding distortion above the threshold.")
+        _create_slider(mod_frame, "Threshold (dB)", self.clipping_thresh, -20, 0, 40, 'clip_thresh_label', "Set the level where hard clipping begins. Lower thresholds sound more distorted.")
 
         # --- 5. Quality & Pitch ---
         q_frame = ctk.CTkFrame(scroll)
@@ -1148,17 +1238,23 @@ class TTSApp(ctk.CTk):
         # Pitch Shift
         ps_head = ctk.CTkFrame(q_frame, fg_color="transparent")
         ps_head.pack(fill="x", padx=5)
-        ctk.CTkCheckBox(ps_head, text="Pitch Shift (High Quality)", variable=self.pitch_shift_enabled).pack(side="left")
-        _create_slider(q_frame, "Semitones", self.pitch_shift_semitones, -12, 12, 48, 'pitch_shift_label')
+        pitch_shift_checkbox = ctk.CTkCheckBox(ps_head, text="Pitch Shift (High Quality)", variable=self.pitch_shift_enabled)
+        pitch_shift_checkbox.pack(side="left")
+        self.add_tooltip(pitch_shift_checkbox, "Change pitch without intentionally changing duration. Use this when timing must remain fixed.")
+        _create_slider(q_frame, "Semitones", self.pitch_shift_semitones, -12, 12, 48, 'pitch_shift_label', "Set the high-quality pitch shift in semitones.")
         
         # Bitcrush
         bc_head = ctk.CTkFrame(q_frame, fg_color="transparent")
         bc_head.pack(fill="x", padx=5, pady=(5,0))
-        ctk.CTkCheckBox(bc_head, text="Bitcrush", variable=self.bitcrush_enabled).pack(side="left")
-        _create_slider(q_frame, "Bit Depth", self.bitcrush_depth, 2, 16, 28, 'bit_depth_label')
+        bitcrush_checkbox = ctk.CTkCheckBox(bc_head, text="Bitcrush", variable=self.bitcrush_enabled)
+        bitcrush_checkbox.pack(side="left")
+        self.add_tooltip(bitcrush_checkbox, "Reduce bit depth for a lo-fi sound. Smaller values are harsher.")
+        _create_slider(q_frame, "Bit Depth", self.bitcrush_depth, 2, 16, 28, 'bit_depth_label', "Set the remaining digital bit depth. Lower values introduce more lo-fi distortion.")
         
         # GSM
-        ctk.CTkCheckBox(q_frame, text="GSM Compressor (Phone Quality)", variable=self.gsm_enabled).pack(anchor="w", padx=10, pady=5)
+        gsm_checkbox = ctk.CTkCheckBox(q_frame, text="GSM Compressor (Phone Quality)", variable=self.gsm_enabled)
+        gsm_checkbox.pack(anchor="w", padx=10, pady=5)
+        self.add_tooltip(gsm_checkbox, "Apply telephone-like GSM quality to the voice.")
         
         # Init labels
         self.update_fx_labels()
@@ -1236,19 +1332,25 @@ class TTSApp(ctk.CTk):
             self.lang_combo.set("American English")
             
         self.lang_combo.grid(row=1, column=1, sticky="ew", padx=10)
+        self.add_tooltip(self.lang_combo, "Select the language pipeline and the matching voice list for the source text.")
 
         # Voice Selection
         ctk.CTkLabel(config_frame, text="Voice:").grid(row=2, column=0, sticky="w", padx=10, pady=5)
         self.voice_combo = ctk.CTkComboBox(config_frame, values=self.get_all_voices(), variable=self.voice_var)
         self.voice_combo.grid(row=2, column=1, sticky="ew", padx=10)
+        self.add_tooltip(self.voice_combo, "Select a bundled voice or a custom .pt voice from custom_voices/.")
 
         # Output Dir
         ctk.CTkLabel(config_frame, text="Output Folder:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
         dir_row = ctk.CTkFrame(config_frame, fg_color="transparent")
         dir_row.grid(row=3, column=1, sticky="ew", padx=10)
         dir_row.grid_columnconfigure(0, weight=1)
-        ctk.CTkEntry(dir_row, textvariable=self.output_dir_var).grid(row=0, column=0, sticky="ew", padx=(0,5))
-        ctk.CTkButton(dir_row, text="...", width=40, command=self.browse_directory).grid(row=0, column=1)
+        output_dir_entry = ctk.CTkEntry(dir_row, textvariable=self.output_dir_var)
+        output_dir_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
+        output_dir_button = ctk.CTkButton(dir_row, text="...", width=40, command=self.browse_directory)
+        output_dir_button.grid(row=0, column=1)
+        self.add_tooltip(output_dir_entry, "Choose the directory that receives generated audio, subtitles, and JIT recovery files.")
+        self.add_tooltip(output_dir_button, "Choose the directory that receives generated audio, subtitles, and JIT recovery files.")
 
         # Filename
         ctk.CTkLabel(config_frame, text="Base Filename:").grid(row=4, column=0, sticky="w", padx=10, pady=5)
@@ -1257,16 +1359,20 @@ class TTSApp(ctk.CTk):
         file_row.grid(row=4, column=1, sticky="ew", padx=10)
         file_row.grid_columnconfigure(0, weight=1)
         
-        ctk.CTkEntry(file_row, textvariable=self.filename_var).grid(row=0, column=0, sticky="ew", padx=(0,5))
+        filename_entry = ctk.CTkEntry(file_row, textvariable=self.filename_var)
+        filename_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
         
         self.format_combo = ctk.CTkComboBox(file_row, values=["wav", "flac", "mp3", "ogg"], width=70, variable=self.output_format_var)
         self.format_combo.grid(row=0, column=1)
+        self.add_tooltip(filename_entry, "Set the prefix for generated segment and combined-output filenames.")
+        self.add_tooltip(self.format_combo, "WAV and FLAC are lossless. MP3 and OGG create smaller, lossy files. JIT playback always uses WAV.")
 
         # Speed
         self.speed_label = ctk.CTkLabel(config_frame, text="Speed: 1.0x")
         self.speed_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
         self.speed_slider = ctk.CTkSlider(config_frame, from_=0.5, to=2.0, number_of_steps=15, variable=self.speed_var, command=self.update_speed_label)
         self.speed_slider.grid(row=5, column=1, sticky="ew", padx=10)
+        self.add_tooltip(self.speed_slider, "Set speech rate. Start at 1.0x; lower values slow delivery and higher values speed it up.")
 
         # Split Pattern
         ctk.CTkLabel(config_frame, text="Split By:").grid(row=6, column=0, sticky="w", padx=10, pady=5)
@@ -1287,6 +1393,7 @@ class TTSApp(ctk.CTk):
         self.split_combo.set(initial_key)
         
         self.split_combo.grid(row=6, column=1, sticky="ew", padx=10, pady=5)
+        self.add_tooltip(self.split_combo, "Choose where Kokoro divides text. Preserve deliberate line breaks with Natural; use Sentences for continuous prose.")
 
         # --- 3. Audio Control ---
         audio_frame = ctk.CTkFrame(main_frame)
@@ -1300,12 +1407,14 @@ class TTSApp(ctk.CTk):
         self.vol_label.grid(row=1, column=0, sticky="w", padx=10, pady=5)
         self.vol_slider = ctk.CTkSlider(audio_frame, from_=0.1, to=2.0, number_of_steps=19, variable=self.volume_var, command=self.update_audio_labels)
         self.vol_slider.grid(row=1, column=1, sticky="ew", padx=10)
+        self.add_tooltip(self.vol_slider, "Apply linear volume before effects and normalization. Leave at 100% for normal narration.")
 
         # Pitch
         self.pitch_label = ctk.CTkLabel(audio_frame, text="Pitch: 0 st")
         self.pitch_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
         self.pitch_slider = ctk.CTkSlider(audio_frame, from_=-12, to=12, number_of_steps=24, variable=self.pitch_var, command=self.update_audio_labels)
         self.pitch_slider.grid(row=2, column=1, sticky="ew", padx=10)
+        self.add_tooltip(self.pitch_slider, "Shift pitch by semitones. The app compensates synthesis speed to keep duration close to the selected Speed.")
 
         # FX Preset
         ctk.CTkLabel(audio_frame, text="FX Preset:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
@@ -1315,7 +1424,10 @@ class TTSApp(ctk.CTk):
         
         self.gen_fx_combo = ctk.CTkComboBox(fx_row, values=["Select FX Preset..."], command=self.load_fx_preset)
         self.gen_fx_combo.pack(side="left", fill="x", expand=True)
-        ctk.CTkCheckBox(fx_row, text="Apply", variable=self.apply_fx_var, width=60).pack(side="left", padx=5)
+        apply_fx_checkbox = ctk.CTkCheckBox(fx_row, text="Apply", variable=self.apply_fx_var, width=60)
+        apply_fx_checkbox.pack(side="left", padx=5)
+        self.add_tooltip(self.gen_fx_combo, "Load a saved group of effects. The Apply checkbox must be enabled to use the loaded effects.")
+        self.add_tooltip(apply_fx_checkbox, "Enable the complete FX chain. Turn this off to bypass effects without clearing their settings.")
         
         self.refresh_fx_presets() # Ensure values are populated
 
@@ -1323,8 +1435,12 @@ class TTSApp(ctk.CTk):
         toggle_frame = ctk.CTkFrame(audio_frame, fg_color="transparent")
         toggle_frame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         
-        ctk.CTkCheckBox(toggle_frame, text="Normalize", variable=self.normalize_audio).pack(side="left", padx=5)
-        ctk.CTkCheckBox(toggle_frame, text="Trim Silence", variable=self.trim_silence).pack(side="left", padx=5)
+        normalize_checkbox = ctk.CTkCheckBox(toggle_frame, text="Normalize", variable=self.normalize_audio)
+        normalize_checkbox.pack(side="left", padx=5)
+        trim_checkbox = ctk.CTkCheckBox(toggle_frame, text="Trim Silence", variable=self.trim_silence)
+        trim_checkbox.pack(side="left", padx=5)
+        self.add_tooltip(normalize_checkbox, "Set the final peak to 98% to avoid most clipping. This does not equalize perceived loudness between voices.")
+        self.add_tooltip(trim_checkbox, "Remove leading and trailing quiet samples from each segment. Leave off to preserve natural pauses.")
 
 
         # --- 4. Advanced Options ---
@@ -1336,9 +1452,15 @@ class TTSApp(ctk.CTk):
         chk_frame = ctk.CTkFrame(adv_frame, fg_color="transparent")
         chk_frame.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkCheckBox(chk_frame, text="Keep Segments", variable=self.separate_files).pack(side="left", padx=5)
-        ctk.CTkCheckBox(chk_frame, text="Combine Output", variable=self.combine_post).pack(side="left", padx=5)
-        ctk.CTkCheckBox(chk_frame, text="Export Subtitles (.srt)", variable=self.export_subtitles).pack(side="left", padx=5)
+        separate_checkbox = ctk.CTkCheckBox(chk_frame, text="Keep Segments", variable=self.separate_files)
+        separate_checkbox.pack(side="left", padx=5)
+        combine_checkbox = ctk.CTkCheckBox(chk_frame, text="Combine Output", variable=self.combine_post)
+        combine_checkbox.pack(side="left", padx=5)
+        subtitles_checkbox = ctk.CTkCheckBox(chk_frame, text="Export Subtitles (.srt)", variable=self.export_subtitles)
+        subtitles_checkbox.pack(side="left", padx=5)
+        self.add_tooltip(separate_checkbox, "Keep the individual generated audio files after optional combining.")
+        self.add_tooltip(combine_checkbox, "Merge generated segments into one finished audio file.")
+        self.add_tooltip(subtitles_checkbox, "Write a sequential SRT subtitle file beside the combined audio output.")
 
         # Threads
         thread_frame = ctk.CTkFrame(adv_frame, fg_color="transparent")
@@ -1353,6 +1475,10 @@ class TTSApp(ctk.CTk):
         
         self.thread_plus_btn = ctk.CTkButton(thread_frame, text="+", width=30, command=lambda: self.change_threads(1))
         self.thread_plus_btn.pack(side="left", padx=2)
+        thread_tip = "Run independent text chunks concurrently. Each worker creates a full pipeline and uses more RAM or VRAM. Use 2 on this PC's RX 6900 XT."
+        self.add_tooltip(self.thread_minus_btn, thread_tip)
+        self.add_tooltip(self.thread_entry, thread_tip)
+        self.add_tooltip(self.thread_plus_btn, thread_tip)
         
         ctk.CTkLabel(thread_frame, text="(More threads = High RAM usage)", text_color="orange").pack(side="left", padx=10)
 
@@ -1503,29 +1629,38 @@ class TTSApp(ctk.CTk):
         app_menu = ctk.CTkOptionMenu(frame, values=["System", "Dark", "Light"], command=self.change_appearance)
         app_menu.set(self.settings["appearance"])
         app_menu.pack(fill="x", pady=5)
+        self.add_tooltip(app_menu, "Match the operating system theme or force the application into Dark or Light mode.")
         
         # Scaling
         ctk.CTkLabel(frame, text="UI Scaling:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
         scale_menu = ctk.CTkOptionMenu(frame, values=["80%", "90%", "100%", "110%", "120%", "150%", "200%", "250%", "300%"], command=self.change_scaling)
         scale_menu.set(self.settings["scaling"])
         scale_menu.pack(fill="x", pady=5)
+        self.add_tooltip(scale_menu, "Scale controls throughout the application. This changes widget size as well as text size.")
 
         # CustomTkinter sizes fonts in pixels; this does not alter widget or window dimensions.
         ctk.CTkLabel(frame, text="Font Size:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
         font_menu = ctk.CTkOptionMenu(frame, values=["14 px", "16 px", "18 px", "20 px", "22 px", "24 px", "26 px", "28 px", "32 px", "36 px", "40 px"], command=self.change_font_size)
         font_menu.set(f"{self.font_size} px")
         font_menu.pack(fill="x", pady=5)
+        self.add_tooltip(font_menu, "Change interface text size without changing window or widget dimensions.")
         
         # Caching
         ctk.CTkLabel(frame, text="Generation Cache:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
-        ctk.CTkCheckBox(frame, text="Enable Generation Caching", variable=self.caching_enabled).pack(anchor="w", pady=5)
+        caching_checkbox = ctk.CTkCheckBox(frame, text="Enable Generation Caching", variable=self.caching_enabled)
+        caching_checkbox.pack(anchor="w", pady=5)
+        self.add_tooltip(caching_checkbox, "Reuse raw synthesis for identical text, voice, language, and effective speed. Clear cache when testing a different Split By setting.")
         
         # JIT
         ctk.CTkLabel(frame, text="Real-time / JIT:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
-        ctk.CTkCheckBox(frame, text="Enable JIT Generation (Streaming)", variable=self.jit_enabled, command=self.on_jit_toggle).pack(anchor="w", pady=5)
+        jit_checkbox = ctk.CTkCheckBox(frame, text="Enable JIT Generation (Streaming)", variable=self.jit_enabled, command=self.on_jit_toggle)
+        jit_checkbox.pack(anchor="w", pady=5)
+        self.add_tooltip(jit_checkbox, "Generate and play sequentially so listening begins before the full document finishes. Parallel Threads do not affect this mode.")
 
         ctk.CTkLabel(frame, text="Diagnostics:", font=self.ui_font("Roboto", 14, "bold")).pack(anchor="w", pady=(15, 5))
-        ctk.CTkCheckBox(frame, text="Enable Debug Logging", variable=self.debug_logging, command=self.on_debug_logging_toggle).pack(anchor="w", pady=5)
+        debug_checkbox = ctk.CTkCheckBox(frame, text="Enable Debug Logging", variable=self.debug_logging, command=self.on_debug_logging_toggle)
+        debug_checkbox.pack(anchor="w", pady=5)
+        self.add_tooltip(debug_checkbox, "Write more diagnostic logging for troubleshooting. Leave this off during normal use.")
         
         ctk.CTkButton(frame, text="Close", command=toplevel.destroy).pack(side="bottom", pady=10)
 
