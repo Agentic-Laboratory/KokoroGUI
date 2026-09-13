@@ -1,4 +1,14 @@
 import os
+
+
+def configure_native_runtime_logging():
+    """Suppress non-actionable MIOpen warnings without hiding backend errors."""
+    # MIOpen reads this before its first use. Preserve an explicit setting for troubleshooting.
+    os.environ.setdefault("MIOPEN_LOG_LEVEL", "3")
+
+
+configure_native_runtime_logging()
+
 import sys
 import threading
 import asyncio

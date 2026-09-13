@@ -95,6 +95,8 @@ Verify that PyTorch can access the GPU before starting the GUI:
 
 The expected output is `True`, a HIP version, and your AMD GPU name. During synthesis, `rocm-smi` should show GPU activity and VRAM use.
 
+KokoroGUI suppresses MIOpen workspace-selection warnings that do not affect synthesis, while leaving backend errors visible. To collect full MIOpen diagnostics for an issue report, start the application with `MIOPEN_LOG_LEVEL=6`.
+
 > **Important:** Use `requirements-rocm.txt` only on Linux systems with ROCm. Keep using `requirements.txt` for CPU, NVIDIA, Windows, and macOS setups.
 
 ### Hardware Selection

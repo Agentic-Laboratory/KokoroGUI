@@ -6,6 +6,22 @@ import warnings
 import kokoro_engine
 
 
+def test_native_runtime_logging_hides_miopen_warnings_by_default(monkeypatch):
+    monkeypatch.delenv("MIOPEN_LOG_LEVEL", raising=False)
+
+    kokoro_engine.configure_native_runtime_logging()
+
+    assert kokoro_engine.os.environ["MIOPEN_LOG_LEVEL"] == "3"
+
+
+def test_native_runtime_logging_preserves_user_miopen_log_level(monkeypatch):
+    monkeypatch.setenv("MIOPEN_LOG_LEVEL", "6")
+
+    kokoro_engine.configure_native_runtime_logging()
+
+    assert kokoro_engine.os.environ["MIOPEN_LOG_LEVEL"] == "6"
+
+
 def test_get_inference_device_falls_back_to_cpu(monkeypatch):
     monkeypatch.setattr(kokoro_engine.torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(kokoro_engine.torch.backends, "mps", SimpleNamespace(is_available=lambda: False), raising=False)
