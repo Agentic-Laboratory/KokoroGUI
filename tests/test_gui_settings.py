@@ -20,7 +20,7 @@ def test_load_settings_merges_existing_config_json(tts_app):
     settings = tts_app.load_settings()
 
     assert settings["voice"] == "am_adam"
-    assert settings["format"] == "wav"  # untouched default still present
+    assert settings["format"] == "mp3"  # untouched default still present
 
 
 def test_load_settings_migrates_legacy_font_scaling(tts_app):

@@ -21,7 +21,7 @@ These settings give a clean narration export without unnecessary post-processing
 | Trim Silence | Off | Preserves natural pauses at the beginning and end of segments. |
 | Apply FX | Off | Keeps narration unprocessed. |
 
-Use `wav` while reviewing audio. Use `flac` for lossless archival files, or `ogg` and `mp3` for smaller files.
+Use `mp3` for normal exports. Use `wav` while checking subtle artifacts, or `flac` when you need a lossless master for archival or later editing.
 
 ## Parallel Threads
 
@@ -50,7 +50,7 @@ These controls choose the model input, the generated speech, and the files writt
 | Language | `lang_code` | Selects the Kokoro language pipeline and available voice list. Choose the language that matches the source text. |
 | Voice | `voice` | Selects a bundled voice or a `.pt` voice file in `custom_voices/`. |
 | Base Filename | `filename` | Prefix for generated segment and combined-output files. |
-| Format | `format` | Output container: `wav`, `flac`, `mp3`, or `ogg`. JIT always uses WAV for playback compatibility. |
+| Format | `format` | Output container: `wav`, `flac`, `mp3`, or `ogg`. MP3 is the default for regular exports. JIT always uses WAV for playback compatibility. |
 | Output Directory | `out_dir` | Directory that receives generated audio, subtitles, and JIT recovery files. |
 | Speed | `speed` | Speech rate from `0.5x` to `2.0x`. Start at `1.0x`; use `0.9x` for denser material and `1.1x` for lighter material. |
 | Volume | `volume` | Linear output gain from 10% to 200%. This happens before FX and normalization. |
@@ -124,6 +124,26 @@ Some fields are saved in `config.json` but are not currently adjustable in the F
 ## Presets And Multi-Speaker Text
 
 Generation presets store voice, speed, volume, pitch, split pattern, cleanup options, output format, and an optional FX preset. FX presets store the effect parameters only. Save presets when you find a combination that works for a voice.
+
+The built-in generation presets use MP3. They are starting points, not fixed voice recommendations.
+
+| Preset | Use | Key choices |
+|---|---|---|
+| Default | General short-form speech | `1.0x`, no processing. |
+| Narrative Training | Dense instructional narration | `0.9x`, natural newline breaks, normalized. |
+| Audiobook Natural | Long-form fiction and nonfiction | `1.0x`, natural newline breaks, normalized. |
+| Accessibility Slow | Deliberate, easy-to-follow delivery | `0.75x`, natural newline breaks, normalized. |
+| Podcast Clean | Conversational spoken-word programs | `1.05x`, natural newline breaks, normalized. |
+
+The built-in FX presets serve distinct roles. Generated speech has no microphone noise or room rumble to remove, so leave FX off for normal narration.
+
+| FX preset | Use | Effect |
+|---|---|---|
+| Broadcast Voice | Briefings, announcements, and status updates | Gentle compression and limiting with a small low-frequency cut. |
+| Small Room | Scripted dialogue that should sound slightly in-scene | A short, quiet room reverb. |
+| Telephone | Radio, phone, or intercom lines inside a script | GSM processing with a 300 Hz to 3.4 kHz band-pass. |
+
+Loading an FX preset changes the FX controls but does not turn on the global **Apply** setting. Enable **Apply** in the Generation tab to process a whole export. In multi-speaker text, an FX marker such as `[Narrator:Telephone]` enables that FX preset only for the marked passage.
 
 You can switch speaker and FX presets inside text using these markers:
 

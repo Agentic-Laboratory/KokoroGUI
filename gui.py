@@ -160,7 +160,7 @@ class TTSApp(ctk.CTk):
 
         self.voice_var = ctk.StringVar(value=self.settings.get("voice", "af_heart"))
         self.filename_var = ctk.StringVar(value=self.settings.get("filename", "output"))
-        self.output_format_var = ctk.StringVar(value=self.settings.get("format", "wav"))
+        self.output_format_var = ctk.StringVar(value=self.settings.get("format", "mp3"))
         self.output_dir_var = ctk.StringVar(value=self.settings.get("out_dir", "audio_output"))
         self.speed_var = ctk.DoubleVar(value=self.settings.get("speed", 1.0))
         self.volume_var = ctk.DoubleVar(value=self.settings.get("volume", 1.0))
@@ -387,7 +387,7 @@ class TTSApp(ctk.CTk):
             "lang_code": "a",
             "voice": "af_heart",
             "filename": "output",
-            "format": "wav",
+            "format": "mp3",
             "out_dir": "audio_output",
             "speed": 1.0,
             "volume": 1.0,

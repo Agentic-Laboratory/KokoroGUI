@@ -62,7 +62,7 @@ def test_default_command_generates_combined_output(monkeypatch, tmp_path, capsys
         "--name", "hello", "--time-id", "run",
     ]) == 0
 
-    assert capsys.readouterr().out.strip() == str(tmp_path / "hello_run_combined.wav")
+    assert capsys.readouterr().out.strip() == str(tmp_path / "hello_run_combined.mp3")
 
 
 def test_synthesis_returns_argument_error_for_invalid_threads(monkeypatch, capsys):

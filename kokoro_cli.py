@@ -68,7 +68,7 @@ DEFAULT_CONFIG = {
     "speed": 1.0,
     "split_pattern": r"\n+",
     "filename": "output",
-    "format": "wav",
+    "format": "mp3",
     "out_dir": "audio_output",
     "separate": True,
     "combine": True,

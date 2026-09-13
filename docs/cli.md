@@ -72,7 +72,7 @@ Run `kokoro-tts COMMAND --help` for the executable reference.
 | `--split-pattern REGEX` | Segment split regular expression. |
 | `--name PREFIX` | Output filename prefix. |
 | `--out-dir PATH` | Output directory. Default: `audio_output`. |
-| `--format FORMAT` | `wav`, `flac`, `mp3`, or `ogg`. |
+| `--format FORMAT` | `wav`, `flac`, `mp3`, or `ogg`. Default: `mp3`. |
 | `--time-id ID` | Deterministic output suffix. Default: current local timestamp. |
 | `--replace SOURCE=TARGET` | Add a case-insensitive lexicon rule. Repeat this option for more rules. |
 
