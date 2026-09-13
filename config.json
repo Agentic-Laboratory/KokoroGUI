@@ -1,8 +1,9 @@
 {
     "appearance": "Dark",
-    "scaling": "100%",
-    "lang_code": "b",
-    "voice": "bf_alice",
+    "scaling": "200%",
+    "font_size": 36,
+    "lang_code": "a",
+    "voice": "af_sky",
     "filename": "output",
     "format": "mp3",
     "out_dir": "audio_output",
