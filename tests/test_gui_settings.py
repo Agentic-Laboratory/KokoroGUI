@@ -54,6 +54,16 @@ def test_save_settings_writes_json_with_current_vars(tts_app):
     assert data["voice"] == "am_liam"
 
 
+def test_save_settings_uses_speed_entry_value(tts_app):
+    import gui
+    tts_app.speed_text_var.set("1.05")
+    tts_app.save_settings()
+
+    with open(gui.CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["speed"] == 1.05
+
+
 def test_save_settings_preserves_externally_added_lexicon_rules(tts_app):
     import gui
 

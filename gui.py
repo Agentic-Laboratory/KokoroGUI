@@ -2,6 +2,7 @@ import os
 import time
 import json
 import logging
+import math
 import re
 import queue
 import playback
@@ -164,6 +165,7 @@ class TTSApp(ctk.CTk):
         self.output_format_var = ctk.StringVar(value=self.settings.get("format", "mp3"))
         self.output_dir_var = ctk.StringVar(value=self.settings.get("out_dir", "audio_output"))
         self.speed_var = ctk.DoubleVar(value=self.settings.get("speed", 1.0))
+        self.speed_text_var = ctk.StringVar(value=f"{self.speed_var.get():.2f}")
         self.volume_var = ctk.DoubleVar(value=self.settings.get("volume", 1.0))
         self.pitch_var = ctk.DoubleVar(value=self.settings.get("pitch", 0.0))
         self.num_threads_var = ctk.IntVar(value=self.settings.get("num_threads", 1))
@@ -318,7 +320,7 @@ class TTSApp(ctk.CTk):
         vars_to_trace = [
             self.lang_var,
             self.voice_var, self.filename_var, self.output_format_var, self.output_dir_var,
-            self.speed_var, self.volume_var, self.pitch_var,
+            self.speed_text_var, self.volume_var, self.pitch_var,
             self.num_threads_var, self.split_pattern_var,
             self.separate_files, self.combine_post, self.export_subtitles, self.caching_enabled, self.debug_logging,
             self.normalize_audio, self.trim_silence, self.apply_fx_var,
@@ -473,7 +475,10 @@ class TTSApp(ctk.CTk):
             self.settings['filename'] = self.filename_var.get()
             self.settings['format'] = self.output_format_var.get()
             self.settings['out_dir'] = self.output_dir_var.get()
-            self.settings['speed'] = self.speed_var.get()
+            try:
+                self.settings['speed'] = self.get_speed()
+            except ValueError:
+                pass
             self.settings['volume'] = self.volume_var.get()
             self.settings['pitch'] = self.pitch_var.get()
             self.settings['num_threads'] = self.num_threads_var.get()
@@ -644,10 +649,14 @@ class TTSApp(ctk.CTk):
         if name:
             name = re.sub(r'[<>:"/\\|?*]', '', name).strip() # Sanitize
             if not name: return
+
+            speed = self.get_speed_or_show_error()
+            if speed is None:
+                return
             
             data = {
                 "voice": self.voice_var.get(),
-                "speed": self.speed_var.get(),
+                "speed": speed,
                 "volume": self.volume_var.get(),
                 "pitch": self.pitch_var.get(),
                 "split_pattern": self.split_pattern_var.get(),
@@ -678,7 +687,7 @@ class TTSApp(ctk.CTk):
                     data = json.load(f)
 
                 if "voice" in data: self.voice_var.set(data["voice"])
-                if "speed" in data: self.speed_var.set(data["speed"])
+                if "speed" in data: self.speed_text_var.set(f"{float(data['speed']):.2f}")
                 if "volume" in data: self.volume_var.set(data["volume"])
                 if "pitch" in data: self.pitch_var.set(data["pitch"])
                 if "split_pattern" in data: self.split_pattern_var.set(data["split_pattern"])
@@ -696,7 +705,6 @@ class TTSApp(ctk.CTk):
 
                 # Update UI labels manually since setting var triggers trace but maybe not UI update logic dependent on callbacks
                 self.update_audio_labels(0)
-                self.update_speed_label(self.speed_var.get())
                 
                 # Update split combo logic
                 target_pat = self.split_pattern_var.get()
@@ -1394,11 +1402,16 @@ class TTSApp(ctk.CTk):
         self.add_tooltip(self.format_combo, "WAV and FLAC are lossless. MP3 and OGG create smaller, lossy files. JIT playback always uses WAV.")
 
         # Speed
-        self.speed_label = ctk.CTkLabel(config_frame, text="Speed: 1.0x")
-        self.speed_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
-        self.speed_slider = ctk.CTkSlider(config_frame, from_=0.5, to=2.0, number_of_steps=15, variable=self.speed_var, command=self.update_speed_label)
-        self.speed_slider.grid(row=5, column=1, sticky="ew", padx=10)
+        ctk.CTkLabel(config_frame, text="Speed:").grid(row=5, column=0, sticky="w", padx=10, pady=5)
+        speed_row = ctk.CTkFrame(config_frame, fg_color="transparent")
+        speed_row.grid(row=5, column=1, sticky="ew", padx=10)
+        speed_row.grid_columnconfigure(0, weight=1)
+        self.speed_slider = ctk.CTkSlider(speed_row, from_=0.5, to=2.0, number_of_steps=30, variable=self.speed_var, command=self.update_speed_entry)
+        self.speed_slider.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.speed_entry = ctk.CTkEntry(speed_row, textvariable=self.speed_text_var, width=70, justify="center")
+        self.speed_entry.grid(row=0, column=1)
         self.add_tooltip(self.speed_slider, "Set speech rate. Start at 1.0x; lower values slow delivery and higher values speed it up.")
+        self.add_tooltip(self.speed_entry, "Enter a speed from 0.50x to 2.00x in 0.05x increments. This value is used for generation.")
 
         # Split Pattern
         ctk.CTkLabel(config_frame, text="Split By:").grid(row=6, column=0, sticky="w", padx=10, pady=5)
@@ -1739,8 +1752,30 @@ class TTSApp(ctk.CTk):
         self.vol_label.configure(text=f"Volume: {int(self.volume_var.get() * 100)}%")
         self.pitch_label.configure(text=f"Pitch: {int(self.pitch_var.get())} st")
 
-    def update_speed_label(self, value):
-        self.speed_label.configure(text=f"Speed: {value:.1f}x")
+    def get_speed(self):
+        """Return the user-entered speed after enforcing the UI's valid range."""
+        try:
+            speed = float(self.speed_text_var.get())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Speed must be a number.") from exc
+
+        if not math.isfinite(speed) or not 0.5 <= speed <= 2.0:
+            raise ValueError("Speed must be between 0.50x and 2.00x.")
+        if not math.isclose(speed / 0.05, round(speed / 0.05), abs_tol=1e-9):
+            raise ValueError("Speed must use 0.05x increments.")
+        return speed
+
+    def update_speed_entry(self, value):
+        """Copy slider selections into the authoritative speed entry."""
+        self.speed_text_var.set(f"{float(value):.2f}")
+
+    def get_speed_or_show_error(self):
+        try:
+            return self.get_speed()
+        except ValueError as exc:
+            messagebox.showerror("Invalid Speed", str(exc))
+            self.speed_entry.focus_set()
+            return None
 
     def update_fx_labels(self):
         # EQ
@@ -1832,6 +1867,10 @@ class TTSApp(ctk.CTk):
             messagebox.showinfo("Wait", "Engine is initializing... please wait 2 seconds and try again.")
             return
 
+        speed = self.get_speed_or_show_error()
+        if speed is None:
+            return
+
         # 1. Get Text
         current_tab = self.tab_view.get()
         text_data = ""
@@ -1855,7 +1894,6 @@ class TTSApp(ctk.CTk):
              
         # Config
         voice = self.voice_var.get()
-        speed = self.speed_var.get()
         
         extra_config = {
             'volume': self.volume_var.get(),
@@ -1945,6 +1983,10 @@ class TTSApp(ctk.CTk):
         except Exception:
             self.num_threads_var.set(1)
 
+        speed = self.get_speed_or_show_error()
+        if speed is None:
+            return
+
         # 1. Get Text
         current_tab = self.tab_view.get()
         text_data = ""
@@ -1974,7 +2016,7 @@ class TTSApp(ctk.CTk):
         config = {
             'lang_code': self.lang_var.get(),
             'voice': self.voice_var.get(),
-            'speed': self.speed_var.get(),
+            'speed': speed,
             'split_pattern': self.split_pattern_var.get(),
             'filename': self.filename_var.get(),
             'format': self.output_format_var.get(),

@@ -1,9 +1,9 @@
 {
     "voice": "af_sky",
-    "speed": 0.8,
+    "speed": 0.85,
     "volume": 0.8,
     "pitch": 0.0,
-    "split_pattern": "\\n+",
+    "split_pattern": "(?<!\\w\\.\\w.)(?<![A-Z][a-z]\\.)(?<=\\.|\\?|\\!)\\s",
     "normalize": true,
     "trim": false,
     "format": "mp3",

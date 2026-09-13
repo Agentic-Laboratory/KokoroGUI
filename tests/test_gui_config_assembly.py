@@ -93,7 +93,26 @@ def test_preview_conversion_assembles_smaller_extra_config(tts_app):
     preview_text, voice, speed, out_path, extra_config = args[:5]
     assert set(extra_config.keys()) == {"volume", "pitch", "normalize", "trim_silence", "lexicon"}
     assert voice == tts_app.voice_var.get()
-    assert speed == tts_app.speed_var.get()
+    assert speed == tts_app.get_speed()
+
+
+def test_speed_entry_is_authoritative_without_moving_slider(tts_app):
+    _set_text(tts_app, "Hello world.")
+    slider_speed = tts_app.speed_var.get()
+    tts_app.speed_text_var.set("1.05")
+
+    tts_app.start_conversion()
+
+    _, config = tts_app.engine.start_conversion.call_args[0]
+    assert config["speed"] == 1.05
+    assert tts_app.speed_var.get() == slider_speed
+
+
+def test_speed_controls_use_half_tenth_increments(tts_app):
+    tts_app.speed_text_var.set("1.05")
+
+    assert tts_app.get_speed() == 1.05
+    assert tts_app.speed_slider.cget("number_of_steps") == 30
 
 
 def test_preview_conversion_apply_fx_true_adds_fx_keys(tts_app):
