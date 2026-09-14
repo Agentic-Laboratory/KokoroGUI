@@ -52,6 +52,8 @@ opt-in. It isn't run in CI.
   `tests/gui_qt/test_qt_config_assembly.py`.
 - If a user can see the change, update the README: the Features list, and a bullet under the
   current "New in" heading.
+- CLI changes update `docs/cli.md` and `tests/test_cli.py`. Generated paths remain on standard
+  output; diagnostics remain on standard error.
 - No formatter or linter is configured. Match the style of the file you're in.
 
 ## Layout
@@ -62,5 +64,6 @@ opt-in. It isn't run in CI.
 - `kokoro_gui/daw/` is the document model: text, clips, tracks, characters, arrangement, dirty
   tracking, undo.
 - `kokoro_gui/audio/` is the transport, mixer and read-time FX stage.
+- `kokoro_gui/cli.py` is the headless Kokoro-only synthesis interface.
 - `kokoro_gui/qt/` is the PySide6 shell; every panel is a dock under `kokoro_gui/qt/docks/`.
 - `docs/` is the GitHub Pages site.

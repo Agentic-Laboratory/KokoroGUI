@@ -130,6 +130,9 @@ real backend, and projects that live in one file.
     normal Voice dropdown. The TTS model pulls in `transformers`/`torchaudio` (new
     `requirements.txt` entries) and loads with `trust_remote_code=True`. First use downloads it
     from Hugging Face.
+-   **Headless Kokoro synthesis.** `python -m kokoro_gui.cli` generates a combined audio file
+    from text, standard input, or a TXT, PDF, or EPUB file without starting the Qt application.
+    See [`docs/cli.md`](docs/cli.md) for the machine-facing command contract.
 -   **Two auto-transcription engines for Audio8's voice reference.** The Voice Reference dock's
     "Auto-Transcribe" button has an engine picker (`kokoro_gui/engine/asr.py`, also runnable
     standalone as `python -m kokoro_gui.engine.asr <wav>`). Default is
