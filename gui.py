@@ -112,7 +112,7 @@ def default_settings():
         "voice": "af_heart",
         "filename": "output",
         "format": "mp3",
-        "out_dir": "audio_output",
+        "out_dir": "",
         "speed": 1.0,
         "volume": 1.0,
         "pitch": 0.0,
@@ -173,6 +173,17 @@ def default_settings():
         "lexicon": dict(DEFAULT_LEXICON)
     }
     return defaults
+
+
+def output_dir_missing(out_dir):
+    """True until an output folder has been chosen.
+
+    The built-in settings leave out_dir blank rather than guessing a directory,
+    so a fresh install asks where audio should go instead of writing somewhere
+    the user has not seen. Blank reaches os.makedirs as FileNotFoundError, so
+    callers must check before generating.
+    """
+    return not (out_dir or "").strip()
 
 
 def create_default_config(path=CONFIG_FILE):
@@ -263,7 +274,7 @@ class TTSApp(ctk.CTk):
         self.voice_var = ctk.StringVar(value=self.settings.get("voice", "af_heart"))
         self.filename_var = ctk.StringVar(value=self.settings.get("filename", "output"))
         self.output_format_var = ctk.StringVar(value=self.settings.get("format", "mp3"))
-        self.output_dir_var = ctk.StringVar(value=self.settings.get("out_dir", "audio_output"))
+        self.output_dir_var = ctk.StringVar(value=self.settings.get("out_dir", ""))
         self.speed_var = ctk.DoubleVar(value=self.settings.get("speed", 1.0))
         self.speed_text_var = ctk.StringVar(value=f"{self.speed_var.get():.2f}")
         self.volume_var = ctk.DoubleVar(value=self.settings.get("volume", 1.0))
@@ -2050,6 +2061,11 @@ class TTSApp(ctk.CTk):
         if not self.engine.pipeline:
              messagebox.showinfo("Wait", "Engine is initializing... please wait 2 seconds and try again.")
              return
+
+        if output_dir_missing(self.output_dir_var.get()):
+            messagebox.showwarning("Output Folder", "Choose an output folder before generating.")
+            self.browse_directory()
+            return
 
         # 2. Config
         config = {

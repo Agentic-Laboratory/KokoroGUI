@@ -31,12 +31,26 @@ def test_does_not_overwrite_an_existing_config(tmp_path):
     assert json.loads(target.read_text(encoding="utf-8")) == mine
 
 
-def test_seeded_out_dir_is_relative_to_the_app(tmp_path):
+def test_seeded_out_dir_is_blank_so_the_user_must_choose_one(tmp_path):
     import gui
 
     settings = gui.create_default_config(str(tmp_path / "config.json"))
 
-    assert not os.path.isabs(settings["out_dir"])
+    assert settings["out_dir"] == ""
+
+
+def test_blank_output_dir_is_reported_missing():
+    import gui
+
+    for value in ("", "   ", None):
+        assert gui.output_dir_missing(value), f"{value!r} is not a folder"
+
+
+def test_chosen_output_dir_is_not_reported_missing():
+    import gui
+
+    for value in ("audio_output", "/Users/echan/Downloads"):
+        assert not gui.output_dir_missing(value)
 
 
 def test_seeded_lexicon_ships_no_work_specific_terms(tmp_path):

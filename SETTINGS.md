@@ -55,7 +55,7 @@ These controls choose the model input, the generated speech, and the files writt
 | Voice | `voice` | Selects a bundled voice or a `.pt` voice file in `custom_voices/`. |
 | Base Filename | `filename` | Prefix for generated segment and combined-output files. |
 | Format | `format` | Output container: `wav`, `flac`, `mp3`, or `ogg`. MP3 is the default for regular exports. JIT always uses WAV for playback compatibility. |
-| Output Directory | `out_dir` | Directory that receives generated audio, subtitles, and JIT recovery files. |
+| Output Directory | `out_dir` | Directory that receives generated audio, subtitles, and JIT recovery files. A new installation leaves this empty and asks for a folder the first time you generate, rather than writing to a directory you have not chosen. |
 | Speed | `speed` | Speech rate from `0.5x` to `2.0x`. Start at `1.0x`; use `0.9x` for denser material and `1.1x` for lighter material. |
 | Volume | `volume` | Linear output gain from 10% to 200%. This happens before FX and normalization. |
 | Pitch | `pitch` | Pitch in semitones from `-12` to `+12`. The application compensates generation speed before resampling so duration stays close to the chosen Speed. |
@@ -190,6 +190,6 @@ You can switch speaker and FX presets inside text using these markers:
 
 `config.json` is not tracked in version control. It records one machine's state, including an absolute `out_dir`, and the application rewrites it whenever settings change or the window closes, so a tracked copy is overwritten by ordinary use.
 
-The application writes `config.json` from its built-in defaults the first time it launches without one, so a fresh install has a file to edit rather than one that appears only after the first save. Those defaults are `default_settings` in `gui.py`. The seeded lexicon holds three sample rules that demonstrate the Lexicon tab; add your own beside them. An existing `config.json` is never rewritten at startup, and a file that fails to parse is left in place to be inspected rather than replaced.
+The application writes `config.json` from its built-in defaults the first time it launches without one, so a fresh install has a file to edit rather than one that appears only after the first save. Those defaults are `default_settings` in `gui.py`. They leave `out_dir` empty, so the first generation asks for a folder instead of writing somewhere you have not seen. The seeded lexicon holds three sample rules that demonstrate the Lexicon tab; add your own beside them. An existing `config.json` is never rewritten at startup, and a file that fails to parse is left in place to be inspected rather than replaced.
 
 To reset settings, close the application and remove or rename `config.json`; the next launch recreates it with defaults. This does not remove custom voices, presets, output audio, or cached audio.
