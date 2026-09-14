@@ -190,5 +190,6 @@ You can switch speaker and FX presets inside text using these markers:
 
 `config.json` is not tracked in version control. It records one machine's state, including an absolute `out_dir`, and the application rewrites it whenever settings change or the window closes, so a tracked copy is overwritten by ordinary use.
 
+The application writes `config.json` from its built-in defaults the first time it launches without one, so a fresh install has a file to edit rather than one that appears only after the first save. Those defaults are `default_settings` in `gui.py`. The seeded lexicon holds three sample rules that demonstrate the Lexicon tab; add your own beside them. An existing `config.json` is never rewritten at startup, and a file that fails to parse is left in place to be inspected rather than replaced.
 
 To reset settings, close the application and remove or rename `config.json`; the next launch recreates it with defaults. This does not remove custom voices, presets, output audio, or cached audio.

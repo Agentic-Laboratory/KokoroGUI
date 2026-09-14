@@ -95,6 +95,105 @@ class Tooltip:
             self._window = None
 
 
+DEFAULT_LEXICON = {
+    "JSON": "Jay son",
+    "SQL": "sequel",
+    "kWh": "kilowatt hours",
+}
+
+
+def default_settings():
+    """The built-in settings a fresh install starts from."""
+    defaults = {
+        "appearance": "Dark", 
+        "scaling": "100%",
+        "font_size": DEFAULT_FONT_SIZE,
+        "lang_code": "a",
+        "voice": "af_heart",
+        "filename": "output",
+        "format": "mp3",
+        "out_dir": "audio_output",
+        "speed": 1.0,
+        "volume": 1.0,
+        "pitch": 0.0,
+        "num_threads": 1,
+        "split_pattern": r"\n+",
+        "separate": True,
+        "combine": True,
+        "export_subtitles": False,
+        "caching": True,
+        "jit_enabled": False,
+        "debug_logging": False,
+        "normalize": False,
+        "trim": False,
+        "apply_fx": True,
+        "reverb_enabled": False,
+        "reverb_room_size": 0.5,
+        "reverb_wet_level": 0.3,
+        "reverb_damping": 0.5,
+        "reverb_dry_level": 1.0,
+        "reverb_width": 1.0,
+        "eq_bass": 0.0,
+        "eq_treble": 0.0,
+        "comp_enabled": False,
+        "comp_threshold": -20.0,
+        "comp_ratio": 4.0,
+        "comp_attack": 1.0,
+        "comp_release": 100.0,
+        "distortion_enabled": False,
+        "distortion_drive": 25.0,
+        "chorus_enabled": False,
+        "chorus_rate": 1.0,
+        "chorus_depth": 0.25,
+        "chorus_mix": 0.5,
+        "phaser_enabled": False,
+        "phaser_rate": 1.0,
+        "phaser_depth": 0.5,
+        "phaser_mix": 0.5,
+        "clipping_enabled": False,
+        "clipping_thresh": -6.0,
+        "bitcrush_enabled": False,
+        "bitcrush_depth": 8.0,
+        "gsm_enabled": False,
+        "highpass_enabled": False,
+        "highpass_freq": 50.0,
+        "lowpass_enabled": False,
+        "lowpass_freq": 10000.0,
+        "delay_enabled": False,
+        "delay_time": 0.5,
+        "delay_feedback": 0.0,
+        "delay_mix": 0.5,
+        "pitch_shift_enabled": False,
+        "pitch_shift_semitones": 0.0,
+        "limiter_enabled": False,
+        "limiter_threshold": -1.0,
+        "limiter_release": 100.0,
+        "gain_enabled": False,
+        "gain_db": 0.0,
+        "lexicon": dict(DEFAULT_LEXICON)
+    }
+    return defaults
+
+
+def create_default_config(path=CONFIG_FILE):
+    """Write the built-in settings to `path` when no config exists yet.
+
+    A fresh install then has a config.json to edit instead of a file that
+    appears only after the first save. An existing file is never rewritten:
+    it holds the user's own settings, and a corrupt one is left in place to
+    be inspected rather than silently replaced.
+    """
+    settings = default_settings()
+    if os.path.exists(path):
+        return settings
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=4)
+    except OSError as e:
+        print(f"Failed to create default config: {e}")
+    return settings
+
+
 class TTSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -384,74 +483,7 @@ class TTSApp(ctk.CTk):
         self.save_timer = self.after(1000, self.save_settings)
 
     def load_settings(self):
-        defaults = {
-            "appearance": "Dark", 
-            "scaling": "100%",
-            "font_size": DEFAULT_FONT_SIZE,
-            "lang_code": "a",
-            "voice": "af_heart",
-            "filename": "output",
-            "format": "mp3",
-            "out_dir": "audio_output",
-            "speed": 1.0,
-            "volume": 1.0,
-            "pitch": 0.0,
-            "num_threads": 1,
-            "split_pattern": r"\n+",
-            "separate": True,
-            "combine": True,
-            "export_subtitles": False,
-            "caching": True,
-            "jit_enabled": False,
-            "debug_logging": False,
-            "normalize": False,
-            "trim": False,
-            "apply_fx": True,
-            "reverb_enabled": False,
-            "reverb_room_size": 0.5,
-            "reverb_wet_level": 0.3,
-            "reverb_damping": 0.5,
-            "reverb_dry_level": 1.0,
-            "reverb_width": 1.0,
-            "eq_bass": 0.0,
-            "eq_treble": 0.0,
-            "comp_enabled": False,
-            "comp_threshold": -20.0,
-            "comp_ratio": 4.0,
-            "comp_attack": 1.0,
-            "comp_release": 100.0,
-            "distortion_enabled": False,
-            "distortion_drive": 25.0,
-            "chorus_enabled": False,
-            "chorus_rate": 1.0,
-            "chorus_depth": 0.25,
-            "chorus_mix": 0.5,
-            "phaser_enabled": False,
-            "phaser_rate": 1.0,
-            "phaser_depth": 0.5,
-            "phaser_mix": 0.5,
-            "clipping_enabled": False,
-            "clipping_thresh": -6.0,
-            "bitcrush_enabled": False,
-            "bitcrush_depth": 8.0,
-            "gsm_enabled": False,
-            "highpass_enabled": False,
-            "highpass_freq": 50.0,
-            "lowpass_enabled": False,
-            "lowpass_freq": 10000.0,
-            "delay_enabled": False,
-            "delay_time": 0.5,
-            "delay_feedback": 0.0,
-            "delay_mix": 0.5,
-            "pitch_shift_enabled": False,
-            "pitch_shift_semitones": 0.0,
-            "limiter_enabled": False,
-            "limiter_threshold": -1.0,
-            "limiter_release": 100.0,
-            "gain_enabled": False,
-            "gain_db": 0.0,
-            "lexicon": {}
-        }
+        defaults = default_settings()
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -463,6 +495,8 @@ class TTSApp(ctk.CTk):
                 return {**defaults, **loaded}
             except Exception:
                 pass
+        else:
+            create_default_config(CONFIG_FILE)
         return defaults
 
     def save_settings(self):

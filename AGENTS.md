@@ -56,5 +56,6 @@ xvfb-run -a pytest
 - Keep CLI output machine-readable: generated paths go to stdout; progress and errors go to stderr.
 - Add tests and update `docs/cli.md` when a public CLI command, option, default, or output convention changes.
 - Do not change `config.json` unless the task explicitly concerns saved GUI settings. The CLI reads a config only when `--config` is supplied and never writes one.
+- `config.json` is untracked runtime state that the GUI rewrites on save and on close. The GUI seeds it from `default_settings` in `gui.py` on first launch; change shipped defaults there, and in `DEFAULT_CONFIG` in `kokoro_cli.py` for the CLI. Never seed machine paths or work-specific lexicon rules.
 - Do not commit generated `cache/`, `custom_voices/`, `audio_output/`, `tests/output/`, virtual environments, or downloaded model artifacts.
 - Use `requirements-rocm.txt` only for Linux hosts with ROCm installed. Standard `pip install -e .` is for CPU, CUDA, Windows, and macOS environments.
