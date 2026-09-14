@@ -1067,13 +1067,32 @@ class KokoroEngine:
         finally:
             if self.on_finish: self.on_finish()
 
+    def _resolve_worker_count(self, config):
+        """Resolve how many generation workers the batch path may use.
+
+        PyTorch's MPS backend is not thread-safe: concurrent submissions can
+        corrupt its internal shader cache and abort the process. Metal
+        serializes the GPU work anyway, so extra workers buy nothing there.
+        Every other backend keeps the requested count.
+        """
+        requested = config.get('num_threads', 1)
+        device, device_description = get_inference_device()
+        if device == "mps" and requested > 1:
+            if self.on_status:
+                self.on_status(
+                    f"{device_description} runs one worker at a time. Using 1 worker instead of {requested}.",
+                    False,
+                )
+            return 1
+        return requested
+
     async def _process_text_async(self, text, config):
         success = True
         try:
             if self.on_status: self.on_status("Preparing text...", False)
             os.makedirs(config['out_dir'], exist_ok=True)
             
-            num_workers = config.get('num_threads', 1)
+            num_workers = self._resolve_worker_count(config)
             
             # Multispeaker Support
             ms_segments = self.parse_multispeaker_text(text)

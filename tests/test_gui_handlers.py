@@ -134,3 +134,13 @@ def test_refresh_voice_lists_crashes_if_custom_voices_dir_missing(tts_app):
     os.rmdir(gui.CUSTOM_VOICES_DIR)
     with pytest.raises(FileNotFoundError):
         tts_app.refresh_voice_lists()
+
+
+def test_set_ui_state_gates_preview_mix_button(tts_app):
+    """Preview Mix starts inference on its own thread, so it must be locked out
+    for the duration of a conversion like the other generation buttons."""
+    tts_app.set_ui_state(True)
+    assert tts_app.mix_preview_btn.cget("state") == "disabled"
+
+    tts_app.set_ui_state(False)
+    assert tts_app.mix_preview_btn.cget("state") == "normal"

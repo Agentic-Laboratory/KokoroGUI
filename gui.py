@@ -1077,7 +1077,8 @@ class TTSApp(ctk.CTk):
         prev_lang_combo.set(lang_display_map.get(self.preview_lang_var.get(), "American English"))
         prev_lang_combo.grid(row=0, column=1, padx=5, pady=5)
         
-        ctk.CTkButton(act_frame, text="Preview", width=100, fg_color="#2B719E", command=self.preview_mix).grid(row=0, column=2, padx=10)
+        self.mix_preview_btn = ctk.CTkButton(act_frame, text="Preview", width=100, fg_color="#2B719E", command=self.preview_mix)
+        self.mix_preview_btn.grid(row=0, column=2, padx=10)
         
         # Save Row
         save_frame = ctk.CTkFrame(parent)
@@ -1853,6 +1854,9 @@ class TTSApp(ctk.CTk):
         
         self.start_btn.configure(state=state)
         self.preview_btn.configure(state=state)
+        # Preview Mix runs inference on its own thread; leaving it live during a
+        # conversion is a second concurrent GPU submission.
+        if hasattr(self, 'mix_preview_btn'): self.mix_preview_btn.configure(state=state)
         self.cancel_btn.configure(state=cancel_state)
         self.thread_minus_btn.configure(state=state)
         self.thread_plus_btn.configure(state=state)

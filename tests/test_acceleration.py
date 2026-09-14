@@ -121,3 +121,63 @@ def test_runtime_warning_filters_only_hide_known_kokoro_compatibility_messages()
         warnings.warn_explicit("unrelated RNN warning", UserWarning, filename="rnn.py", lineno=4, module="torch.nn.modules.rnn")
 
     assert [str(warning.message) for warning in captured] == ["unrelated RNN warning"]
+
+
+# ---------------------------------------------------------------------------
+# Worker-count clamping. PyTorch's MPS backend is not thread-safe: two threads
+# submitting GPU work concurrently can corrupt its shader cache and abort the
+# process. The batch path therefore drops to a single worker on MPS only -
+# CPU, CUDA/ROCm and XPU must keep whatever the user asked for.
+#
+# _resolve_worker_count reads nothing but the config, the module-level
+# get_inference_device and self.on_status, so these call it on a recorder stub
+# rather than standing up a real KokoroEngine (and its event-loop thread) five
+# times over.
+# ---------------------------------------------------------------------------
+
+def _resolve(config):
+    statuses = []
+    stub = SimpleNamespace(on_status=lambda msg, is_err: statuses.append((msg, is_err)))
+    workers = kokoro_engine.KokoroEngine._resolve_worker_count(stub, config)
+    return workers, statuses
+
+
+def test_worker_count_clamped_to_one_on_mps(make_config, monkeypatch):
+    monkeypatch.setattr(kokoro_engine, "get_inference_device", lambda: ("mps", "Apple Silicon GPU"))
+
+    workers, statuses = _resolve(make_config(num_threads=4))
+
+    assert workers == 1
+    assert len(statuses) == 1
+    message, is_error = statuses[0]
+    assert is_error is False
+    assert "1 worker" in message
+    assert "4" in message
+
+
+def test_worker_count_not_clamped_on_cpu(make_config, monkeypatch):
+    monkeypatch.setattr(kokoro_engine, "get_inference_device", lambda: ("cpu", "CPU"))
+
+    assert _resolve(make_config(num_threads=4)) == (4, [])
+
+
+def test_worker_count_not_clamped_on_cuda(make_config, monkeypatch):
+    monkeypatch.setattr(
+        kokoro_engine, "get_inference_device", lambda: ("cuda", "CUDA GPU: NVIDIA RTX 5090")
+    )
+
+    assert _resolve(make_config(num_threads=4)) == (4, [])
+
+
+def test_worker_count_not_clamped_on_xpu(make_config, monkeypatch):
+    monkeypatch.setattr(
+        kokoro_engine, "get_inference_device", lambda: ("xpu", "Intel XPU: Arc A770")
+    )
+
+    assert _resolve(make_config(num_threads=4)) == (4, [])
+
+
+def test_single_worker_request_on_mps_is_silent(make_config, monkeypatch):
+    monkeypatch.setattr(kokoro_engine, "get_inference_device", lambda: ("mps", "Apple Silicon GPU"))
+
+    assert _resolve(make_config(num_threads=1)) == (1, [])
