@@ -172,6 +172,7 @@ cython_debug/
 .pypirc
 /audio_output/
 /cache/
+/config.json
 /custom_voices/
 /ROADMAP.md
 /tests/output/

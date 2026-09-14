@@ -188,4 +188,7 @@ You can switch speaker and FX presets inside text using these markers:
 
 `config.json` is persisted application state, not a required hand-edited configuration file. The application accepts unknown keys but does not use them. It keeps all documented keys listed above, including FX values, when it saves.
 
+`config.json` is not tracked in version control. It records one machine's state, including an absolute `out_dir`, and the application rewrites it whenever settings change or the window closes, so a tracked copy is overwritten by ordinary use.
+
+
 To reset settings, close the application and remove or rename `config.json`; the next launch recreates it with defaults. This does not remove custom voices, presets, output audio, or cached audio.
