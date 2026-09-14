@@ -3,10 +3,16 @@
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
 import time
 from pathlib import Path
+
+# Resolved via paths.py rather than kokoro_engine: importing the engine here
+# would pull in torch and turn listing commands like `voices` from ~0.05s into
+# ~3s. Read as module-level names so tests can redirect them.
+from paths import CUSTOM_VOICES_DIR, FX_PRESETS_DIR, PRESETS_DIR
 
 KokoroEngine = None
 get_inference_device = None
@@ -295,8 +301,8 @@ def _read_config(path):
 def _load_preset(engine, name, fx=False):
     preset = engine.load_fx_preset(name) if fx else engine.load_preset(name)
     if preset is None:
-        directory = "presets/fx" if fx else "presets"
-        raise ValueError(f"Preset not found: {directory}/{name}.json")
+        directory = FX_PRESETS_DIR if fx else PRESETS_DIR
+        raise ValueError(f"Preset not found: {os.path.join(directory, f'{name}.json')}")
     if "trim" in preset and "trim_silence" not in preset:
         preset["trim_silence"] = preset["trim"]
     return preset
@@ -426,7 +432,7 @@ async def _run_mix(args):
 
 def _run_voices(args):
     languages = [_normalise_language(args.language)] if args.language else list(LANGUAGES)
-    custom_dir = Path("custom_voices")
+    custom_dir = Path(CUSTOM_VOICES_DIR)
     custom = sorted(path.stem for path in custom_dir.glob("*.pt")) if custom_dir.is_dir() else []
     result = {LANGUAGES[code]: {"code": code, "standard": VOICE_DB[code], "custom": custom} for code in languages}
     if args.json:

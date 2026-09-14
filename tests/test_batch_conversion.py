@@ -3,7 +3,7 @@ pipeline (kokoro_engine.py:568-705, 910-1061). caching=False throughout
 (via make_config's default) except where noted."""
 import asyncio
 import json
-from pathlib import Path
+import os
 
 
 def test_process_chunk_task_writes_named_part_files(engine, fake_pipeline, make_config, isolated_dirs):
@@ -72,12 +72,9 @@ def test_process_text_async_chunk_exception_does_not_abort_batch(
     assert (isolated_dirs.out_dir / "run_1_combined.wav").exists()
 
 
-def test_multispeaker_preset_and_fx_preset_layering(engine, fake_pipeline, make_config, isolated_dirs, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    presets_dir = tmp_path / "presets"
-    fx_dir = presets_dir / "fx"
-    presets_dir.mkdir(exist_ok=True)
-    fx_dir.mkdir(exist_ok=True)
+def test_multispeaker_preset_and_fx_preset_layering(engine, fake_pipeline, make_config, isolated_dirs, monkeypatch):
+    presets_dir = isolated_dirs.presets_dir
+    fx_dir = isolated_dirs.fx_presets_dir
 
     (presets_dir / "Narrator.json").write_text(json.dumps({"voice": "am_adam", "speed": 1.25}), encoding="utf-8")
     (fx_dir / "Radio.json").write_text(json.dumps({"reverb_enabled": True, "reverb_room_size": 0.9}), encoding="utf-8")
@@ -102,7 +99,14 @@ def test_multispeaker_preset_and_fx_preset_layering(engine, fake_pipeline, make_
 
 
 def test_bundled_narrative_training_preset_resolves_its_fx(engine, fake_pipeline, make_config, isolated_dirs, monkeypatch):
-    monkeypatch.chdir(Path(__file__).parent.parent)
+    # This one deliberately reads the presets shipped with the application, so
+    # undo isolated_dirs' redirect rather than changing the working directory -
+    # the constants are anchored to APP_DIR and ignore the CWD.
+    import kokoro_engine
+    bundled = os.path.join(kokoro_engine.APP_DIR, "presets")
+    monkeypatch.setattr(kokoro_engine, "PRESETS_DIR", bundled)
+    monkeypatch.setattr(kokoro_engine, "FX_PRESETS_DIR", os.path.join(bundled, "fx"))
+
     config = make_config(filename="narrative", time_id="1")
     captured = {}
     real_task = engine.process_chunk_task
@@ -115,7 +119,9 @@ def test_bundled_narrative_training_preset_resolves_its_fx(engine, fake_pipeline
     asyncio.run(engine._process_text_async("[Narrative Training]: A narrated lesson.", config))
 
     assert captured["config"]["voice"] == "af_sky"
-    assert captured["config"]["speed"] == 0.8
+    # Tracks presets/Narrative Training.json, which commit aa43d69 ("Refine
+    # speed controls") moved from 0.8 to 0.85 without updating this assertion.
+    assert captured["config"]["speed"] == 0.85
     assert captured["config"]["volume"] == 0.8
     assert captured["config"]["apply_fx"] is True
     assert captured["config"]["fx_preset"] == "Small Room"

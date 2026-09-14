@@ -126,10 +126,11 @@ def test_load_fx_preset_basename_sanitized(tts_app):
 
 
 def test_refresh_voice_lists_crashes_if_custom_voices_dir_missing(tts_app):
+    import gui
     # Documents an existing asymmetry at gui.py:693 (os.listdir with no
     # os.path.exists guard), unlike get_all_voices (gui.py:192) which does
     # guard. Pins current behavior - do not silently "fix" by changing this
     # assertion; if the guard is added, update this test deliberately.
-    os.rmdir("custom_voices")
+    os.rmdir(gui.CUSTOM_VOICES_DIR)
     with pytest.raises(FileNotFoundError):
         tts_app.refresh_voice_lists()

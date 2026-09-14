@@ -1,6 +1,10 @@
 """Tests for the public command-line interface without model downloads."""
 
 import json
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import kokoro_cli
@@ -188,3 +192,65 @@ def test_mix_writes_custom_voice(monkeypatch, tmp_path, capsys):
 
     assert (tmp_path / "custom_voices" / "narrator.pt").exists()
     assert capsys.readouterr().out.strip() == "custom_voices/narrator.pt"
+
+
+# ---------------------------------------------------------------------------
+# CLI startup weight
+#
+# Path resolution must go through paths.py, never kokoro_engine. Importing the
+# engine costs ~3.1s and takes `kokoro-tts voices` from ~0.05s to ~3s, which
+# makes the command useless in shell loops and completions.
+#
+# kokoro_engine is the thing to pin, not torch: `import torch` is only ~0.55s
+# of that ~3.1s, so a torch-only assertion would stay green through most of a
+# regression. A lazy import inside a function body is fine - these assert what
+# happens at import time.
+#
+# Subprocesses on purpose: checking sys.modules in-process proves nothing once
+# conftest has already imported kokoro_engine.
+# ---------------------------------------------------------------------------
+
+# Anything here would reintroduce multi-second CLI startup.
+HEAVY_MODULES = ("kokoro_engine", "torch", "kokoro", "pedalboard", "soundfile", "scipy", "numpy")
+
+
+def _run_isolated(code):
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True, text=True, env=env, cwd=tempfile.gettempdir(),
+    )
+
+
+def test_importing_kokoro_cli_does_not_import_kokoro_engine():
+    result = _run_isolated(
+        "import kokoro_cli, sys; sys.exit(1 if 'kokoro_engine' in sys.modules else 0)"
+    )
+
+    assert result.returncode == 0, f"importing kokoro_cli pulled in kokoro_engine\n{result.stderr}"
+
+
+def test_voices_command_does_not_import_kokoro_engine():
+    result = _run_isolated(
+        "import io, sys, contextlib, kokoro_cli\n"
+        "with contextlib.redirect_stdout(io.StringIO()):\n"
+        "    rc = kokoro_cli.main(['voices', '--language', 'en-us', '--json'])\n"
+        "sys.exit(rc or (1 if 'kokoro_engine' in sys.modules else 0))"
+    )
+
+    assert result.returncode == 0, f"`voices` pulled in kokoro_engine\n{result.stderr}"
+
+
+def test_importing_kokoro_cli_stays_free_of_heavy_dependencies():
+    # Broader than the kokoro_engine check: catches a future import of kokoro
+    # or pedalboard directly, which would be just as slow without ever naming
+    # kokoro_engine. Deterministic rather than a wall-clock ceiling, which
+    # would flake under CI load.
+    result = _run_isolated(
+        "import kokoro_cli, sys, json\n"
+        f"heavy = {list(HEAVY_MODULES)!r}\n"
+        "print(json.dumps([m for m in heavy if m in sys.modules]))"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []

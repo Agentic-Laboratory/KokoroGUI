@@ -66,8 +66,10 @@ def configure_runtime_warnings():
 
 configure_runtime_warnings()
 
-CUSTOM_VOICES_DIR = "custom_voices"
-CACHE_DIR = "cache"
+# State directories are anchored to the application, not the working directory.
+# Re-exported as module-level names so engine code reads its own global and the
+# test suite can redirect them - see paths.py.
+from paths import APP_DIR, CACHE_DIR, CUSTOM_VOICES_DIR, FX_PRESETS_DIR, PRESETS_DIR
 
 # --- Thread Local Storage ---
 thread_local = threading.local()
@@ -567,7 +569,7 @@ class KokoroEngine:
         """Loads a preset from the presets directory."""
         # Sanitize name to prevent path traversal
         safe_name = os.path.basename(name)
-        preset_path = os.path.join("presets", f"{safe_name}.json")
+        preset_path = os.path.join(PRESETS_DIR, f"{safe_name}.json")
         if os.path.exists(preset_path):
             try:
                 with open(preset_path, "r", encoding="utf-8") as f:
@@ -580,7 +582,7 @@ class KokoroEngine:
         """Loads an FX preset from the presets/fx directory."""
         # Sanitize name to prevent path traversal
         safe_name = os.path.basename(name)
-        fx_path = os.path.join("presets", "fx", f"{safe_name}.json")
+        fx_path = os.path.join(FX_PRESETS_DIR, f"{safe_name}.json")
         if os.path.exists(fx_path):
             try:
                 with open(fx_path, "r", encoding="utf-8") as f:

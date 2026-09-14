@@ -23,9 +23,10 @@ MONOSPACE_FONT_FAMILY = "Liberation Mono"
 ctk.ThemeManager.theme["CTkFont"]["family"] = UI_FONT_FAMILY
 ctk.ThemeManager.theme["CTkFont"]["size"] = DEFAULT_FONT_SIZE
 
-CONFIG_FILE = "config.json"
-PRESETS_DIR = "presets"
-FX_PRESETS_DIR = os.path.join(PRESETS_DIR, "fx")
+# Settings, presets and custom voices live beside the application, never in the
+# working directory. Re-exported as module-level names so GUI code reads its own
+# global and the test suite can redirect them - see paths.py.
+from paths import APP_DIR, CONFIG_FILE, CUSTOM_VOICES_DIR, FX_PRESETS_DIR, PRESETS_DIR
 APP_LOGGERS = ("gui", "kokoro_engine", "playback")
 
 
@@ -311,8 +312,8 @@ class TTSApp(ctk.CTk):
         
         standard = self.VOICE_DB.get(lang_code, [])
         custom = []
-        if os.path.exists("custom_voices"):
-            custom = [f[:-3] for f in os.listdir("custom_voices") if f.endswith(".pt")]
+        if os.path.exists(CUSTOM_VOICES_DIR):
+            custom = [f[:-3] for f in os.listdir(CUSTOM_VOICES_DIR) if f.endswith(".pt")]
         return sorted(standard + custom)
 
 
@@ -891,7 +892,7 @@ class TTSApp(ctk.CTk):
                 widget.destroy()
                 
             all_voices = self.get_all_voices(self.lang_var.get())
-            custom = [f[:-3] for f in os.listdir("custom_voices") if f.endswith(".pt")]
+            custom = [f[:-3] for f in os.listdir(CUSTOM_VOICES_DIR) if f.endswith(".pt")]
             if not custom:
                 ctk.CTkLabel(self.custom_list_frame, text="No custom voices found.", text_color="gray").pack(pady=5)
             else:
@@ -904,7 +905,7 @@ class TTSApp(ctk.CTk):
     def delete_custom_voice(self, name):
         if messagebox.askyesno("Confirm", f"Delete voice '{name}'?"):
             try:
-                path = os.path.join("custom_voices", f"{name}.pt")
+                path = os.path.join(CUSTOM_VOICES_DIR, f"{name}.pt")
                 if os.path.exists(path):
                     os.remove(path)
                     self.refresh_voice_lists()
@@ -944,7 +945,7 @@ class TTSApp(ctk.CTk):
             
             # 3. Cleanup temp voice file
             try:
-                p = os.path.join("custom_voices", f"{tmp_voice_name}.pt")
+                p = os.path.join(CUSTOM_VOICES_DIR, f"{tmp_voice_name}.pt")
                 if os.path.exists(p): os.remove(p)
             except Exception: pass
             

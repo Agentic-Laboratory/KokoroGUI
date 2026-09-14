@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 import torch
 
+import kokoro_cli
 import kokoro_engine
 from kokoro_engine import KokoroEngine
 
@@ -48,15 +49,38 @@ _RUN_TS = time.strftime("%Y%m%d%H%M%S")
 
 @pytest.fixture
 def isolated_dirs(tmp_path, monkeypatch):
-    """Redirect kokoro_engine's module-level storage dirs into tmp_path."""
+    """Redirect the engine's and the CLI's storage dirs into tmp_path.
+
+    The real constants are defined in paths.py and anchored to the application
+    directory, so patching is the only way to keep a test off the repository's
+    own cache/, custom_voices/ and presets/.
+
+    Patch the module whose code does the reading, not paths itself: every
+    consumer does `from paths import X`, which binds at import, so patching
+    `paths.X` would change nothing. kokoro_engine and kokoro_cli each read
+    their own copy, so both are redirected here.
+    """
     custom_voices = tmp_path / "custom_voices"
     cache_dir = tmp_path / "cache"
     out_dir = tmp_path / "out"
-    for d in (custom_voices, cache_dir, out_dir):
-        d.mkdir()
+    presets_dir = tmp_path / "presets"
+    fx_presets_dir = presets_dir / "fx"
+    for d in (custom_voices, cache_dir, out_dir, fx_presets_dir):
+        d.mkdir(parents=True)
     monkeypatch.setattr(kokoro_engine, "CUSTOM_VOICES_DIR", str(custom_voices))
     monkeypatch.setattr(kokoro_engine, "CACHE_DIR", str(cache_dir))
-    return SimpleNamespace(custom_voices=custom_voices, cache_dir=cache_dir, out_dir=out_dir)
+    monkeypatch.setattr(kokoro_engine, "PRESETS_DIR", str(presets_dir))
+    monkeypatch.setattr(kokoro_engine, "FX_PRESETS_DIR", str(fx_presets_dir))
+    monkeypatch.setattr(kokoro_cli, "CUSTOM_VOICES_DIR", str(custom_voices))
+    monkeypatch.setattr(kokoro_cli, "PRESETS_DIR", str(presets_dir))
+    monkeypatch.setattr(kokoro_cli, "FX_PRESETS_DIR", str(fx_presets_dir))
+    return SimpleNamespace(
+        custom_voices=custom_voices,
+        cache_dir=cache_dir,
+        out_dir=out_dir,
+        presets_dir=presets_dir,
+        fx_presets_dir=fx_presets_dir,
+    )
 
 
 @pytest.fixture
@@ -215,6 +239,12 @@ def tts_app(tmp_path, monkeypatch):
     monkeypatch.setattr(gui, "CONFIG_FILE", str(tmp_path / "config.json"))
     monkeypatch.setattr(gui, "PRESETS_DIR", str(tmp_path / "presets"))
     monkeypatch.setattr(gui, "FX_PRESETS_DIR", str(tmp_path / "presets" / "fx"))
+    # gui reads its own copy of CUSTOM_VOICES_DIR; the engine keeps a separate
+    # one. Redirect both, or a GUI test would reach the real directories.
+    monkeypatch.setattr(gui, "CUSTOM_VOICES_DIR", str(tmp_path / "custom_voices"))
+    monkeypatch.setattr(kokoro_engine, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(kokoro_engine, "FX_PRESETS_DIR", str(tmp_path / "presets" / "fx"))
+    monkeypatch.setattr(kokoro_engine, "CUSTOM_VOICES_DIR", str(tmp_path / "custom_voices"))
     monkeypatch.setattr(gui, "KokoroEngine", StubEngine)
     monkeypatch.setattr(gui, "messagebox", MagicMock())
     monkeypatch.setattr(gui, "filedialog", MagicMock())
