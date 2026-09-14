@@ -97,6 +97,52 @@ def get_inference_device():
 
     return "cpu", "CPU"
 
+def patch_stft_phase(pipeline):
+    """Pin the vocoder's phase at the branch cut, so every backend agrees.
+
+    TorchSTFT.transform hands torch.angle's raw output to the vocoder, and
+    torch.angle is discontinuous where the imaginary part is zero and the real
+    part is negative. MPS's FFT returns -0.0 for bins where CPU returns +0.0,
+    which is not an error on either side, but it puts them on opposite sides of
+    that discontinuity: CPU yields +pi and MPS yields -pi. Roughly 11% of
+    time-frequency bins differ by 2*pi, and they carry above-average magnitude.
+    Those raw values feed noise_convs directly, so Apple Silicon output is about
+    0.4 dB quieter than, and audibly different from, every other backend.
+
+    kokoro's own CustomSTFT already applies exactly this correction; TorchSTFT
+    simply does not. Pinning the branch to +pi matches it. On CPU the mask falls
+    within run-to-run noise, so this needs no device gate.
+
+    Returns True when the pipeline is patched, False when the vocoder does not
+    expose the expected structure - a kokoro upgrade that moves the seam should
+    degrade to current behaviour, not crash.
+    """
+    try:
+        stft = pipeline.model.decoder.generator.stft
+    except AttributeError:
+        return False
+
+    if getattr(stft, "_phase_branch_pinned", False):
+        return True
+
+    def transform(input_data):
+        spectrum = torch.stft(
+            input_data,
+            stft.filter_length,
+            stft.hop_length,
+            stft.win_length,
+            window=stft.window.to(input_data.device),
+            return_complex=True,
+        )
+        phase = torch.angle(spectrum)
+        branch_cut = (spectrum.imag == 0) & (spectrum.real < 0)
+        phase = torch.where(branch_cut, torch.full_like(phase, torch.pi), phase)
+        return torch.abs(spectrum), phase
+
+    stft.transform = transform
+    stft._phase_branch_pinned = True
+    return True
+
 def get_thread_pipeline(lang_code="a"):
     """Get or create a KPipeline instance for the current thread."""
     current = getattr(thread_local, "pipeline", None)
@@ -108,6 +154,7 @@ def get_thread_pipeline(lang_code="a"):
                 device=device,
                 repo_id=KOKORO_REPO_ID,
             )
+            patch_stft_phase(thread_local.pipeline)
         except Exception as e:
             print(f"Error init pipeline in thread {threading.get_ident()}: {e}", file=sys.stderr)
             return None
@@ -338,6 +385,7 @@ class KokoroEngine:
                 device=device,
                 repo_id=KOKORO_REPO_ID,
             )
+            patch_stft_phase(self.pipeline)
             if notify and self.on_status: self.on_status(f"Pipeline Initialized ({lang_code}, {device_description}).", False)
             return True
         except Exception as e:
