@@ -31,13 +31,17 @@ Use `mp3` for normal exports. Use `wav` while checking subtle artifacts, or `fla
 |---|---|---:|---|
 | This PC: Ryzen 7 5800X, Radeon RX 6900 XT, 16 GB VRAM | ROCm GPU | **2** | A short representative synthesis check found the throughput plateau at two workers. Do not use the current value of five. |
 | This PC: Ryzen 7 5800X | CPU | **4** | Four workers reached the CPU throughput plateau while using less memory than higher values. |
-| MacBook with M2 and 8 GB unified memory | MPS GPU | **1** | Leave memory for macOS and avoid swap. |
-| MacBook with M2 and 16 GB or 24 GB unified memory | MPS GPU | **2** | A practical starting point for the smaller integrated GPU. |
+| Any Mac | MPS GPU | **1** (forced) | KokoroGUI clamps the worker count to 1 on `mps` and ignores higher values. See below. |
 | MacBook with M2 | CPU | **2** | Avoids oversubscribing the performance and efficiency cores. |
-| MacBook Pro with M5 Pro | MPS GPU | **2** | Try `3` only with a long document and keep it only if the total time improves clearly. |
 | MacBook Pro with M5 Pro | CPU | **4** | A conservative setting that leaves capacity for macOS. |
 
-The settings for the MacBooks are hardware-based estimates, not measurements on those machines. Apple Silicon uses unified memory, so close other memory-heavy applications before raising the worker count. If macOS reports memory pressure or the application becomes less responsive, lower the setting by one.
+The CPU settings for the MacBooks are hardware-based estimates, not measurements on those machines. Apple Silicon uses unified memory, so close other memory-heavy applications before raising the worker count. If macOS reports memory pressure or the application becomes less responsive, lower the setting by one.
+
+### Apple Silicon is limited to one worker
+
+PyTorch's MPS backend is not thread-safe in torch 2.13.0: its Metal shader library caches kernels in containers that carry no lock, so two workers submitting GPU work concurrently can corrupt that cache and abort the process with a SIGABRT or SIGSEGV. Local measurement on a 16.6 KB script saw 2 of 4 runs at 2 workers die this way. KokoroGUI therefore forces a single worker whenever the selected device is `mps`, and prints a status message when it overrides the setting.
+
+Nothing is lost by this. The same measurements showed multiple workers were already slower on MPS than a single worker (about 54 s at 4 workers against 44 s at 1), because Metal serializes the GPU work regardless of how many threads submit it. Raising Parallel Threads on Apple Silicon only ever cost stability. The limit does not apply to the CPU device, where extra workers remain a genuine speedup, and it does not apply to CUDA or ROCm.
 
 > **Important:** JIT generation is sequential playback-oriented generation. It does not use the batch worker pool, so changing Parallel Threads does not make JIT playback faster.
 

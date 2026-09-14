@@ -2,15 +2,17 @@
 
 ## Start Here
 
-Run commands from the repository root. Install the project into a Python 3.11+ virtual environment:
+Run commands from the repository root. Install the project into a Python 3.11 or 3.12 virtual environment: `kokoro==0.9.4` requires Python `>=3.10,<3.13`, and `pyproject.toml` sets the floor at 3.11, so 3.13 and newer are not supported yet. Plain `python`/`python3` may resolve to an unsupported version depending on the platform, so name the interpreter explicitly.
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/python -m pip install -r requirements-test.txt
 ```
 
-On Windows, replace `.venv/bin/python` with `.venv\Scripts\python`.
+On Windows, create the virtual environment with `py -3.12 -m venv .venv` (the `py` launcher selects the version) and replace `.venv/bin/python` with `.venv\Scripts\python` in the commands above.
+
+The GUI needs a Tk-enabled Python. Homebrew Python on macOS ships without it (`brew install python-tk@3.12`, matching the interpreter version above), and several Linux distributions split it into a separate package (`sudo apt install python3-tk`). The CLI does not need Tk.
 
 Use `kokoro-tts --help` or `.venv/bin/python -m kokoro_cli --help` to discover the CLI. The full reference is in [docs/cli.md](docs/cli.md).
 

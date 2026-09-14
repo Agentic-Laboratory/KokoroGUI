@@ -50,7 +50,8 @@ https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 
 ## Prerequisites
 
--   **Python 3.11+**
+-   **Python 3.11 or 3.12** — `kokoro==0.9.4` requires Python `>=3.10,<3.13`, and `pyproject.toml` sets the floor at 3.11, so 3.13 and newer are not supported yet.
+-   **Tk support for your Python** — the GUI needs a Tk-enabled interpreter. Homebrew Python on macOS does not include it by default (`brew install python-tk@3.12`, matching your Python version); several Linux distributions split it into a separate package (`sudo apt install python3-tk`). Not required for CLI-only use.
 -   **[eSpeak NG](https://github.com/espeak-ng/espeak-ng)**
 
 ## Installation
@@ -63,12 +64,14 @@ https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 
 2.  **Create a virtual environment (recommended):**
     ```bash
-    python -m venv .venv
-    # On Windows:
-    .venv\Scripts\activate
     # On macOS/Linux:
+    python3.12 -m venv .venv
     source .venv/bin/activate
+    # On Windows (the py launcher selects the version):
+    py -3.12 -m venv .venv
+    .venv\Scripts\activate
     ```
+    Plain `python`/`python3` may resolve to an unsupported version depending on the platform; name the version explicitly as shown, or use the version-checked `run.bat`/`run.sh` launchers below.
 
 3.  **Install dependencies:**
     ```bash
@@ -134,7 +137,7 @@ See [Settings Guide](SETTINGS.md) for every generation, processing, FX, and inte
 
 1.  **Run the application:**
     -   **Windows:** Double-click `run.bat` or run `python main.py`
-    -   **Other:** Run `python main.py`
+    -   **macOS/Linux:** Run `./run.sh` or `python main.py`
 
 2.  **Configure your conversion:**
     -   Choose your input method (Direct Text or Load File).

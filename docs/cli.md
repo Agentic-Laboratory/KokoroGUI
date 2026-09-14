@@ -4,12 +4,14 @@
 
 ## Install
 
-Install the project in editable mode from the repository root:
+Install the project in editable mode from the repository root, using Python 3.11 or 3.12 (`kokoro==0.9.4` requires `>=3.10,<3.13`, and `pyproject.toml` sets the floor at 3.11, so 3.13 and newer are not supported yet; plain `python`/`python3` may resolve to an unsupported version depending on the platform):
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
+
+On Windows, use `py -3.12 -m venv .venv` and `.venv\Scripts\python` in place of `.venv/bin/python`.
 
 The installed command is `kokoro-tts`. During development, use `.venv/bin/python -m kokoro_cli` instead.
 
@@ -68,7 +70,7 @@ Run `kokoro-tts COMMAND --help` for the executable reference.
 | `--speed NUMBER` | Speech speed multiplier. |
 | `--volume NUMBER` | Output gain multiplier. |
 | `--pitch NUMBER` | Pitch shift in semitones that also changes duration. |
-| `--threads 1..16` | Parallel generation worker count. |
+| `--threads 1..16` | Parallel generation worker count. Only takes effect above `1`; see below. |
 | `--split-pattern REGEX` | Segment split regular expression. |
 | `--name PREFIX` | Output filename prefix. |
 | `--out-dir PATH` | Output directory. Default: `audio_output`. |
@@ -90,6 +92,8 @@ Boolean settings have both positive and negative forms. For example, `--cache` e
 | JIT playback | Off | `--jit` |
 
 `--jit` streams generated WAV segments to the audio device and writes a combined `*_jit_output.wav`. Use batch synthesis for unattended agents and headless systems.
+
+`--threads` only splits text into parallel chunks when set above `1`, using a 5000-character chunk size. Text shorter than roughly 5000 characters forms a single chunk, so the option has no effect on short input. On CPU it is a genuine speedup: a 16.6 KB script took roughly 102 s at `--threads 1` versus 59-69 s at `--threads 4` in local measurements. On Apple Silicon (MPS) it is not: the same measurements showed `--threads 4` about 20% slower than `--threads 1` (54 s versus 44 s), and PyTorch's MPS backend is not thread-safe in torch 2.13.0, so concurrent workers can crash with a SIGABRT/SIGSEGV inside its Metal shader library. KokoroGUI automatically limits the worker count to `1` when the selected device is `mps` and prints a status message explaining why.
 
 ## Effects
 
@@ -129,6 +133,8 @@ kokoro-tts --text "Radio check." --out-dir audio_output --name radio \
 kokoro-tts config --print-default > synthesis.json
 kokoro-tts --config synthesis.json --text "Configured synthesis."
 ```
+
+`presets/`, `presets/fx/`, `custom_voices/`, and the cache resolve against the installed application directory, not the working directory, so the same files are found no matter where `kokoro-tts` is run from. `--config` and `--out-dir` are the exception: both resolve as given, relative to the working directory.
 
 The merge order is built-in defaults, JSON config, `--preset`, `--fx-preset`, then explicit command-line flags. The CLI accepts existing GUI `config.json` files but ignores appearance, scaling, and font fields. It maps the GUI's `trim` key to `trim_silence` and honors `jit_enabled`. Output names and timestamp IDs use letters, numbers, underscores, and hyphens only.
 
