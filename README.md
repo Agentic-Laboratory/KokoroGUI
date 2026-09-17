@@ -13,6 +13,7 @@ https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 
 -   **Cross-Platform Audio Playback:** Preview and JIT playback now go through `sounddevice`/`soundfile` instead of the Windows-only `winsound` module, removing a hard Windows dependency from `kokoro_engine.py`/`gui.py`.
 -   **Warm-Pipeline Daemon:** `kokoro-ttsd` holds one pipeline loaded and speaks lines sent to a Unix socket, so a caller that cannot pay the ~11s cold start gets audio in about a second. See [daemon reference](docs/daemon.md).
+-   **Menu Bar App (macOS):** `kokoro-ttsmenu` puts the daemon's state in the menu bar and drives it from there: start, restart, stop playback, and pick a voice. A separate process from the daemon, holding no model of its own. See [menu bar reference](docs/menubar.md).
 
 ## New in 3.1.0
 
@@ -144,6 +145,16 @@ kokoro-ttsd say "The build passed."
 ```
 
 The trade is memory: a warm daemon holds about 1.2 GB resident. See the [daemon reference](docs/daemon.md) for the protocol, the socket path, and running it at login.
+
+### Menu Bar (macOS)
+
+`kokoro-ttsmenu` is a status bar front end for that daemon, and a separate process from it:
+
+```bash
+kokoro-ttsmenu
+```
+
+It shows whether the daemon is warm, starting, or not running; starts, restarts, and interrupts it; and picks a voice. It holds no model itself and never starts the daemon on its own, since that memory cost is a deliberate choice. See the [menu bar reference](docs/menubar.md).
 
 ### Graphical Interface
 

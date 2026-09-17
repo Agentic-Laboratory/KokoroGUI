@@ -20,11 +20,13 @@ dependencies = [
     "sounddevice",
     "torch==2.13.0",
     "customtkinter",
+    "rumps==0.4.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
 kokoro-tts = "kokoro_cli:main"
 kokoro-ttsd = "kokoro_daemon:main"
+kokoro-ttsmenu = "kokoro_menubar:main"
 
 [tool.setuptools]
-py-modules = ["gui", "kokoro_cli", "kokoro_daemon", "kokoro_engine", "main", "paths", "playback"]
+py-modules = ["gui", "kokoro_cli", "kokoro_daemon", "kokoro_engine", "kokoro_menubar", "main", "paths", "playback"]

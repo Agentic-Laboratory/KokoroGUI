@@ -14,7 +14,7 @@ On Windows, create the virtual environment with `py -3.12 -m venv .venv` (the `p
 
 The GUI needs a Tk-enabled Python. Homebrew Python on macOS ships without it (`brew install python-tk@3.12`, matching the interpreter version above), and several Linux distributions split it into a separate package (`sudo apt install python3-tk`). The CLI does not need Tk.
 
-Use `kokoro-tts --help` or `.venv/bin/python -m kokoro_cli --help` to discover the CLI. The full reference is in [docs/cli.md](docs/cli.md). The warm-pipeline socket service is `kokoro-ttsd`, documented in [docs/daemon.md](docs/daemon.md).
+Use `kokoro-tts --help` or `.venv/bin/python -m kokoro_cli --help` to discover the CLI. The full reference is in [docs/cli.md](docs/cli.md). The warm-pipeline socket service is `kokoro-ttsd`, documented in [docs/daemon.md](docs/daemon.md). Its menu bar front end is `kokoro-ttsmenu`, documented in [docs/menubar.md](docs/menubar.md).
 
 ## Commands
 
@@ -50,6 +50,7 @@ xvfb-run -a pytest
 
 - `kokoro_cli.py` is the non-GUI command-line adapter. Keep its parser, `--help`, and `docs/cli.md` aligned.
 - `kokoro_daemon.py` is the long-lived socket front end for callers that cannot pay a cold start. Same rule as the CLI: it adapts, it does not synthesize. See [docs/daemon.md](docs/daemon.md).
+- `kokoro_menubar.py` is the menu bar front end: a separate process, holding no model, that drives `kokoro_daemon.py` over its existing socket. Same rule as the CLI and the daemon: it adapts, it does not synthesize. See [docs/menubar.md](docs/menubar.md).
 - `gui.py` owns Tk state and UI-only settings. Do not import it from the CLI.
 - `kokoro_engine.py` owns synthesis, file extraction, caching, presets, voice mixing, and DSP processing.
 - `playback.py` owns optional audio playback. Standard CLI synthesis must work without an audio device.
