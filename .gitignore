@@ -177,3 +177,6 @@ cython_debug/
 /ROADMAP.md
 /tests/output/
 /.notes/
+
+# kokoro_daemon Unix socket
+/daemon.sock

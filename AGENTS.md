@@ -14,7 +14,7 @@ On Windows, create the virtual environment with `py -3.12 -m venv .venv` (the `p
 
 The GUI needs a Tk-enabled Python. Homebrew Python on macOS ships without it (`brew install python-tk@3.12`, matching the interpreter version above), and several Linux distributions split it into a separate package (`sudo apt install python3-tk`). The CLI does not need Tk.
 
-Use `kokoro-tts --help` or `.venv/bin/python -m kokoro_cli --help` to discover the CLI. The full reference is in [docs/cli.md](docs/cli.md).
+Use `kokoro-tts --help` or `.venv/bin/python -m kokoro_cli --help` to discover the CLI. The full reference is in [docs/cli.md](docs/cli.md). The warm-pipeline socket service is `kokoro-ttsd`, documented in [docs/daemon.md](docs/daemon.md).
 
 ## Commands
 
@@ -25,6 +25,10 @@ kokoro-tts devices
 
 # Generate audio without starting the Tk GUI.
 kokoro-tts --text "Hello from Kokoro." --voice af_heart --out-dir audio_output
+
+# Keep one pipeline warm and speak lines sent to its socket.
+kokoro-ttsd serve &
+kokoro-ttsd say "Generated without a cold start."
 
 # Run the mocked fast suite.
 pytest
@@ -45,6 +49,7 @@ xvfb-run -a pytest
 ## Project Boundaries
 
 - `kokoro_cli.py` is the non-GUI command-line adapter. Keep its parser, `--help`, and `docs/cli.md` aligned.
+- `kokoro_daemon.py` is the long-lived socket front end for callers that cannot pay a cold start. Same rule as the CLI: it adapts, it does not synthesize. See [docs/daemon.md](docs/daemon.md).
 - `gui.py` owns Tk state and UI-only settings. Do not import it from the CLI.
 - `kokoro_engine.py` owns synthesis, file extraction, caching, presets, voice mixing, and DSP processing.
 - `playback.py` owns optional audio playback. Standard CLI synthesis must work without an audio device.

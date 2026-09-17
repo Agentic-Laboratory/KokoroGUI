@@ -23,3 +23,9 @@ CACHE_DIR = os.path.join(APP_DIR, "cache")
 PRESETS_DIR = os.path.join(APP_DIR, "presets")
 FX_PRESETS_DIR = os.path.join(PRESETS_DIR, "fx")
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
+
+# Unix socket for kokoro_daemon. Anchored here like the rest of the app state so
+# a daemon and a client started from different working directories still meet.
+# $KOKORO_TTS_SOCKET overrides it.
+DAEMON_SOCKET = os.path.join(APP_DIR, "daemon.sock")
+

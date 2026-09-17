@@ -12,6 +12,7 @@ https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 ## New in 3.2.0 
 
 -   **Cross-Platform Audio Playback:** Preview and JIT playback now go through `sounddevice`/`soundfile` instead of the Windows-only `winsound` module, removing a hard Windows dependency from `kokoro_engine.py`/`gui.py`.
+-   **Warm-Pipeline Daemon:** `kokoro-ttsd` holds one pipeline loaded and speaks lines sent to a Unix socket, so a caller that cannot pay the ~11s cold start gets audio in about a second. See [daemon reference](docs/daemon.md).
 
 ## New in 3.1.0
 
@@ -132,6 +133,17 @@ kokoro-tts --text "Hello from Kokoro." --voice af_heart --out-dir audio_output
 Use `kokoro-tts --help` to inspect the available commands and flags. See [CLI reference](docs/cli.md) for the full synthesis, FX, presets, voice mixing, and automation guide.
 
 See [Settings Guide](SETTINGS.md) for every generation, processing, FX, and interface option, including hardware-specific Parallel Threads recommendations.
+
+### Background Daemon
+
+Loading the model costs about eleven seconds, which every `kokoro-tts` invocation pays. `kokoro-ttsd` pays it once and then answers newline-delimited JSON over a Unix socket, so a hook, a build notifier, or anything else on a hot path gets spoken output in roughly a second:
+
+```bash
+kokoro-ttsd serve &
+kokoro-ttsd say "The build passed."
+```
+
+The trade is memory: a warm daemon holds about 1.2 GB resident. See the [daemon reference](docs/daemon.md) for the protocol, the socket path, and running it at login.
 
 ### Graphical Interface
 
