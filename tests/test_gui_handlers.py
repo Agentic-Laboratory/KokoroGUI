@@ -21,11 +21,14 @@ def test_add_lexicon_rule_persists_and_refreshes(tts_app):
 
 def test_add_lexicon_rule_empty_original_shows_warning(tts_app):
     import gui
+    # Snapshotted rather than compared to {}: the assertion under test is that
+    # a blank original adds nothing, which holds whatever the shipped seed is.
+    before = dict(tts_app.settings.get("lexicon", {}))
     tts_app.lex_orig_var.set("")
     tts_app.lex_replace_var.set("hi")
     tts_app.add_lexicon_rule()
 
-    assert tts_app.settings.get("lexicon", {}) == {}
+    assert tts_app.settings.get("lexicon", {}) == before
     assert gui.messagebox.showwarning.called
 
 

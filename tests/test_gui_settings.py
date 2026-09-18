@@ -3,11 +3,17 @@
 import json
 from unittest.mock import call, MagicMock
 
+import pytest
+
 
 def test_load_settings_defaults_when_no_config_file(tts_app):
+    import gui
     settings = tts_app.load_settings()
     assert settings["voice"] == "af_heart"
-    assert settings["lexicon"] == {}
+    # The shipped default seeds DEFAULT_LEXICON's demo rules so a fresh install
+    # shows the Lexicon tab does something. Compared against the constant, not
+    # a literal, so changing the demos does not have to touch this test.
+    assert settings["lexicon"] == gui.DEFAULT_LEXICON
     assert settings["caching"] is True
     assert settings["debug_logging"] is False
 
@@ -122,6 +128,10 @@ def test_change_scaling_uses_requested_widget_scale_without_cap(tts_app, monkeyp
 
 def test_change_font_size_resizes_text_without_widget_scaling(tts_app, monkeypatch):
     import gui
+    import tkinter.font
+    families = {name.casefold() for name in tkinter.font.families(tts_app)}
+    if "liberation sans" not in families:
+        pytest.skip("Liberation Sans is not available to Tk on this system")
     set_widget_scaling = MagicMock()
     monkeypatch.setattr(gui.ctk, "set_widget_scaling", set_widget_scaling)
     status_font = tts_app.status_label.cget("font")
