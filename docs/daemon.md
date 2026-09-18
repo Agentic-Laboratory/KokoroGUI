@@ -54,20 +54,48 @@ Requests:
 
 | Field | Meaning |
 |---|---|
-| `command` | `speak` (the default), `ping`, `stop`, `shutdown`. |
-| `text` | The line to speak. Truncated at 2000 characters: longer input is a document, and belongs in `kokoro-tts synthesize`. |
+| `command` | `speak` (the default), `ping`, `stop`, `shutdown`, `history`, `replay`, `hold`, `release`, `purge`. |
+| `text` | The line to speak, for `speak`. The daemon accepts up to 2000 characters, but `kokoro_engine.py`'s preview writer truncates each segment to 500 characters and keeps only the first two, so the effective spoken length is about 500 characters regardless of the daemon's own cap; see [claude-code.md](claude-code.md#the-fallback-ladder) for why that matters to callers speaking model-authored prose. Longer input belongs in `kokoro-tts synthesize`, not this socket. |
 | `voice`, `speed`, `lang` | Override the daemon's defaults for this line. |
-| `wait` | When true, the reply is withheld until the line has finished playing. |
+| `format` | `wav`, `ogg`, or `mp3`, for this `speak` request only. Omitted uses the daemon's own default (`ogg` unless `serve --format` says otherwise). |
+| `key` | Dedupe key, for `speak`. A repeat of a key already seen is ignored and answered `{"ok": true, "deduped": true}`, unless `replace` is set. |
+| `replace` | For `speak`. Stops whatever is playing, drops every pending line, and bypasses the dedupe check, so this line queues immediately. |
+| `wait` | When true, the reply is withheld until the line has finished playing, or, for a request that was deduped or held, returned immediately, since there is nothing to wait for. |
+| `limit` | For `history`. How many entries to return, newest first. Defaults to 15. |
+| `id` | For `replay`. Which stored entry to play again. |
 
-Replies always carry `ok`. A queued line answers `{"ok": true, "queued": true}`; a rejected one carries `error`.
+Replies always carry `ok`. A rejected request carries `error` instead of the fields below.
+
+| Reply shape | When |
+|---|---|
+| `{"ok": true, "queued": true, "id": "0042"}` | A `speak` request was accepted: synthesized, recorded to history, and queued for, or already at, playback. |
+| `{"ok": true, "deduped": true}` | The `key` on a `speak` request had already been seen. Nothing was synthesized or queued. |
+| `{"ok": true, "held": true, "id": "0042"}` | A `speak` request was accepted while hold is engaged: synthesized and recorded to history, but not queued for playback. |
+| `{"ok": true, "entries": [...]}` | Reply to `history`. Entries newest first, each carrying `id`, `text`, `voice`, `format`, `bytes`, `created`. |
+| `{"ok": true}` | Reply to `replay`, `stop`, or `shutdown`. |
+| `{"ok": true, "held": true\|false}` | Reply to `hold` or `release`. |
+| `{"ok": true, "removed": 12, "bytes": 290100}` | Reply to `purge`. |
+
+`ping` carries its own shape:
+
+| Field | Meaning |
+|---|---|
+| `pid` | Process id of the running daemon. |
+| `voice`, `lang` | The daemon's current defaults. |
+| `format` | The daemon's current default output format. |
+| `held` | Whether hold is currently engaged. |
+| `queued` | Pending lines waiting to play; does not count the one currently playing. |
+| `history_count`, `history_bytes` | Size of the stored history, for a `ping` caller that wants to show it without a separate `history` call. |
 
 ## Interruption
 
-Synthesis is serialized behind one lock, because a single `KPipeline` is not safe to drive concurrently. Playback deliberately runs outside that lock: `playback.play` already replaces whatever is playing, so a new request interrupts an older line rather than queueing behind it. A request that is superseded while it is still synthesizing is dropped without playing, on the grounds that the caller has moved past it.
+Synthesis is serialized behind one lock, because a single `KPipeline` is not safe to drive concurrently. Playback runs outside that lock, but it no longer replaces whatever is already playing: a `speak` request queues behind whatever is pending, and lines always play one at a time, strictly in arrival order, never overlapping, so several Claude Code sessions sharing one daemon never talk over each other. The pending queue holds up to 100 lines; that cap is a runaway safety valve rather than a routine limit, so normal use should never come close to it. Once the cap is reached, the queue drops the **oldest** pending line, not the newest, so a burst of requests plays out in the order it arrived rather than jumping to whichever line showed up last. A dropped line is not lost: every line is written to history before this decision is made, so it stays recoverable with `kokoro-ttsd replay`. `replace: true` restores the old newest-wins behavior for a caller that wants an immediate interrupt, such as a build notifier: it stops whatever is playing, drops every pending line, and queues just this one.
 
 ## Cost
 
 A warm daemon holds the model resident: about 1.2 GB. That is the trade for the latency. Where that is too much to keep loaded all the time, run the daemon only for the sessions that want spoken output, or call `kokoro-tts` and accept the cold start.
+
+History adds a second, much smaller cost. Up to 200 entries are kept by default, oldest pruned first, and the running total is reported in `ping`'s `history_bytes` field. At the default Ogg Vorbis format, 200 lines land around a megabyte, nowhere near the model's memory footprint, but it is a new resource this daemon now owns, and it lives under the system temporary directory (`tempfile.gettempdir()`), never inside this repository. Treat it as a recent-session convenience rather than an archive: macOS clears items under the system temporary directory after roughly three days of disuse.
 
 ## Running it at login on macOS
 
