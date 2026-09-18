@@ -9,6 +9,13 @@ A modern, high-quality Text-to-Speech (TTS) application built with Python, featu
 
 https://github.com/user-attachments/assets/c75e7141-5d73-40f4-b182-d4f5bc49ad1e
 
+## New in 3.3.0
+
+-   **Speak History and Hold:** `kokoro-ttsd` now keeps a rolling history of spoken lines and can be told to hold output rather than play it, so a line synthesized while you were away is not lost or burst-played at you all at once. See [daemon reference](docs/daemon.md).
+-   **FIFO Speak Queue:** A `speak` request now queues behind whatever is already pending, dropping the oldest line on overflow, instead of interrupting it outright. `replace: true` is available for callers, such as a build notifier, that still want the old newest-wins behavior.
+-   **Configurable Audio Format:** The daemon's output format (`wav`/`ogg`/`mp3`, defaulting to Ogg Vorbis) is now selectable per line and per daemon instance.
+-   **Claude Code Integration Documented:** How Claude Code's `MessageDisplay` hook drives this daemon, including the dedupe and queueing behavior above, is now documented in [docs/claude-code.md](docs/claude-code.md).
+
 ## New in 3.2.0 
 
 -   **Cross-Platform Audio Playback:** Preview and JIT playback now go through `sounddevice`/`soundfile` instead of the Windows-only `winsound` module, removing a hard Windows dependency from `kokoro_engine.py`/`gui.py`.
