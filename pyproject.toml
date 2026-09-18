@@ -29,4 +29,4 @@ kokoro-ttsd = "kokoro_daemon:main"
 kokoro-ttsmenu = "kokoro_menubar:main"
 
 [tool.setuptools]
-py-modules = ["gui", "kokoro_cli", "kokoro_daemon", "kokoro_engine", "kokoro_menubar", "main", "paths", "playback"]
+py-modules = ["gui", "kokoro_cli", "kokoro_daemon", "kokoro_engine", "kokoro_history", "kokoro_menubar", "main", "paths", "playback"]
