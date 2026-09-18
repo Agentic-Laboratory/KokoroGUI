@@ -23,7 +23,7 @@ def configure_backend(monkeypatch, backend):
     monkeypatch.setattr(playback, "_load_attempted", True)
     monkeypatch.setattr(playback, "_active_backend", None)
     monkeypatch.setattr(playback, "_active_process", None)
-    monkeypatch.setattr(playback, "_use_aplay", lambda: False)
+    monkeypatch.setattr(playback, "_use_aplay", lambda path: False)
 
 
 def test_nonblocking_play_releases_portaudio_in_daemon_thread(monkeypatch):
@@ -90,7 +90,7 @@ def test_linux_playback_uses_pipewire_aplay(monkeypatch):
     process.communicate.return_value = ("", "")
     monkeypatch.setattr(playback, "_active_backend", None)
     monkeypatch.setattr(playback, "_active_process", None)
-    monkeypatch.setattr(playback, "_use_aplay", lambda: True)
+    monkeypatch.setattr(playback, "_use_aplay", lambda path: True)
     monkeypatch.setattr(playback.subprocess, "Popen", MagicMock(return_value=process))
 
     playback.play("preview.wav", blocking=True)
@@ -102,3 +102,31 @@ def test_linux_playback_uses_pipewire_aplay(monkeypatch):
         text=True,
     )
     process.communicate.assert_called_once_with()
+
+
+def test_use_aplay_gates_on_the_wav_extension_case_insensitively(monkeypatch):
+    monkeypatch.setattr(playback.sys, "platform", "linux")
+    monkeypatch.setattr(playback.shutil, "which", lambda name: "/usr/bin/aplay")
+
+    assert playback._use_aplay("line.wav") is True
+    assert playback._use_aplay("line.WAV") is True
+    assert playback._use_aplay("line.ogg") is False
+    assert playback._use_aplay("line.mp3") is False
+
+
+def test_ogg_on_linux_falls_through_to_the_sounddevice_backend(monkeypatch):
+    backend = MagicMock()
+    monkeypatch.setattr(playback, "_sounddevice", backend)
+    monkeypatch.setattr(playback, "_load_attempted", True)
+    monkeypatch.setattr(playback, "_active_backend", None)
+    monkeypatch.setattr(playback, "_active_process", None)
+    monkeypatch.setattr(playback.sys, "platform", "linux")
+    monkeypatch.setattr(playback.shutil, "which", lambda name: "/usr/bin/aplay")
+    monkeypatch.setattr(playback.sf, "read", MagicMock(return_value=("audio", 24000)))
+    popen = MagicMock()
+    monkeypatch.setattr(playback.subprocess, "Popen", popen)
+
+    playback.play("line.ogg", blocking=True)
+
+    popen.assert_not_called()
+    backend.play.assert_called_once_with("audio", 24000)

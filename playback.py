@@ -25,9 +25,18 @@ _backend_lock = threading.Lock()
 _playback_lock = threading.Lock()
 
 
-def _use_aplay() -> bool:
-    """Use ALSA's PipeWire endpoint when it is available on Linux."""
-    return sys.platform.startswith("linux") and shutil.which("aplay") is not None
+def _use_aplay(path: str) -> bool:
+    """Use ALSA's PipeWire endpoint for WAV on Linux; everything else falls through.
+
+    `aplay` decodes WAV, AU, VOC and raw PCM only, never Ogg Vorbis or MP3, so a
+    non-WAV path must never reach `_play_with_aplay` regardless of platform or
+    aplay's availability.
+    """
+    return (
+        sys.platform.startswith("linux")
+        and shutil.which("aplay") is not None
+        and path.lower().endswith(".wav")
+    )
 
 
 def _load_sounddevice():
@@ -112,7 +121,12 @@ def _play(path: str, request_id: int) -> None:
 
 
 def _play_with_aplay(path: str, request_id: int) -> None:
-    """Play a WAV through PipeWire without starting a PortAudio client."""
+    """Play a WAV through PipeWire without starting a PortAudio client.
+
+    Only WAV reaches this path: `_use_aplay` gates on the `.wav` extension, and
+    every other format falls through to `_play`, which reads it via
+    `soundfile`.
+    """
     global _active_process
 
     with _playback_lock:
@@ -170,7 +184,7 @@ def play(path: str, blocking: bool = False) -> None:
         logger.debug("Stopping active aplay process before request %s", request_id)
         active_process.terminate()
 
-    player = _play_with_aplay if _use_aplay() else _play
+    player = _play_with_aplay if _use_aplay(path) else _play
     if blocking:
         player(path, request_id)
     else:
