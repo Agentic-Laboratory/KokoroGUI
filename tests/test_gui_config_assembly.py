@@ -10,6 +10,16 @@ def _set_text(app, text):
     app.text_entry.insert("1.0", text)
 
 
+def _choose_output_dir(app, tmp_path):
+    """Stand in for the user picking a folder.
+
+    Since 669d93a the built-in settings leave out_dir blank, so start_conversion
+    opens the folder picker and returns instead of reaching the engine. A test
+    that wants the generation path has to choose a folder first.
+    """
+    app.output_dir_var.set(str(tmp_path))
+
+
 BASE_KEYS = {
     "lang_code", "voice", "speed", "split_pattern", "filename", "format",
     "out_dir", "separate", "combine", "export_subtitles", "caching",
@@ -34,8 +44,9 @@ FX_KEYS = {
 }
 
 
-def test_start_conversion_assembles_full_key_set(tts_app):
+def test_start_conversion_assembles_full_key_set(tts_app, tmp_path):
     _set_text(tts_app, "Hello world.")
+    _choose_output_dir(tts_app, tmp_path)
     tts_app.apply_fx_var.set(True)
     tts_app.start_conversion()
 
@@ -47,8 +58,9 @@ def test_start_conversion_assembles_full_key_set(tts_app):
     assert re.fullmatch(r"\d{14}", config["time_id"])
 
 
-def test_start_conversion_apply_fx_false_omits_fx_keys(tts_app):
+def test_start_conversion_apply_fx_false_omits_fx_keys(tts_app, tmp_path):
     _set_text(tts_app, "Hello world.")
+    _choose_output_dir(tts_app, tmp_path)
     tts_app.apply_fx_var.set(False)
     tts_app.start_conversion()
 
@@ -57,8 +69,9 @@ def test_start_conversion_apply_fx_false_omits_fx_keys(tts_app):
     assert "gain_db" not in config
 
 
-def test_start_conversion_jit_enabled_routes_to_start_jit_conversion(tts_app):
+def test_start_conversion_jit_enabled_routes_to_start_jit_conversion(tts_app, tmp_path):
     _set_text(tts_app, "Hello world.")
+    _choose_output_dir(tts_app, tmp_path)
     tts_app.jit_enabled.set(True)
     tts_app.start_conversion()
 
@@ -96,8 +109,9 @@ def test_preview_conversion_assembles_smaller_extra_config(tts_app):
     assert speed == tts_app.get_speed()
 
 
-def test_speed_entry_is_authoritative_without_moving_slider(tts_app):
+def test_speed_entry_is_authoritative_without_moving_slider(tts_app, tmp_path):
     _set_text(tts_app, "Hello world.")
+    _choose_output_dir(tts_app, tmp_path)
     slider_speed = tts_app.speed_var.get()
     tts_app.speed_text_var.set("1.05")
 
