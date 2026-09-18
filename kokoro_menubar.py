@@ -44,6 +44,12 @@ STATUS_RESTARTING = "restarting"
 
 STATUS_GLYPHS = {STATUS_WARM: "●", STATUS_STARTING: "◐", STATUS_STOPPED: "○"}
 UNKNOWN_VOICE = "—"
+UNKNOWN_FORMAT = "—"
+
+# Returned by speak_sample when the daemon accepted and recorded the sample
+# but did not play it because output is held. Distinct from True (played) and
+# False (failed outright), so a caller cannot mistake one for the other.
+SPEAK_HELD = "held"
 
 STARTING_GRACE = 30.0  # seconds a recent start keeps showing "starting"
 PING_TIMEOUT = 1.5
@@ -125,6 +131,16 @@ def display_voice(config, ping_reply):
     return UNKNOWN_VOICE
 
 
+def display_format(config, ping_reply):
+    """The audio format that will actually be used: the config outranks the daemon."""
+    for source in (config, ping_reply):
+        if isinstance(source, dict):
+            value = source.get("format")
+            if isinstance(value, str) and value.strip():
+                return value
+    return UNKNOWN_FORMAT
+
+
 # Two patterns, not one. The loose one finds every line that claims the key, so
 # a line the strict one cannot parse - an inline comment after the value, say -
 # is counted as a candidate and refuses the edit, instead of being skipped in
@@ -154,6 +170,18 @@ def resolved_socket(config=None):
     return None
 
 
+def _config_key_lines(lines, key_pattern):
+    """Every non-comment line whose stripped body matches key_pattern."""
+    candidates = []
+    for index, line in enumerate(lines):
+        body = line.rstrip("\r\n")
+        if body.lstrip().startswith(("#", "//")):
+            continue
+        if key_pattern.match(body):
+            candidates.append((index, body, line[len(body):]))
+    return candidates
+
+
 def rewrite_config_token(text, key, value):
     """Replace one scalar in the config text, or return None to refuse.
 
@@ -175,13 +203,7 @@ def rewrite_config_token(text, key, value):
     value_pattern = re.compile(_VALUE_PATTERN.format(key=quoted))
 
     lines = text.splitlines(keepends=True)
-    candidates = []
-    for index, line in enumerate(lines):
-        body = line.rstrip("\r\n")
-        if body.lstrip().startswith(("#", "//")):
-            continue
-        if key_pattern.match(body):
-            candidates.append((index, body, line[len(body):]))
+    candidates = _config_key_lines(lines, key_pattern)
     if len(candidates) != 1:
         return None
 
@@ -190,6 +212,52 @@ def rewrite_config_token(text, key, value):
     if match is None:
         return None
     lines[index] = match.group("head") + json.dumps(value) + match.group("tail") + ending
+    return "".join(lines)
+
+
+def insert_config_token(text, key, value):
+    """Insert `"key": value` as a new line just after the opening brace.
+
+    Refuses unless exactly one non-comment line's stripped body is a bare
+    `{` - a config whose object opens on the same line as its first key
+    (a hand-collapsed one-liner) is refused rather than guessed at, the same
+    convention rewrite_config_token uses for an ambiguous match. Indentation
+    is copied from the first existing key line after the brace, or defaults
+    to two spaces when the object is otherwise empty. The new line reuses the
+    brace line's own end-of-line sequence, so a CRLF file stays CRLF.
+    """
+    if isinstance(value, (dict, list)):
+        raise TypeError("insert_config_token writes JSON scalars only")
+
+    lines = text.splitlines(keepends=True)
+    brace_lines = [
+        index for index, line in enumerate(lines)
+        if not line.rstrip("\r\n").lstrip().startswith(("#", "//"))
+        and re.match(r'^\s*\{\s*$', line.rstrip("\r\n"))
+    ]
+    if len(brace_lines) != 1:
+        return None
+
+    brace_index = brace_lines[0]
+    brace_line = lines[brace_index]
+    ending = brace_line[len(brace_line.rstrip("\r\n")):] or "\n"
+
+    indent = "  "
+    has_following_key = False
+    for line in lines[brace_index + 1:]:
+        body = line.rstrip("\r\n")
+        if body.lstrip().startswith(("#", "//")) or not body.strip():
+            continue
+        if body.strip() == "}":
+            break
+        stripped = body.lstrip(" \t")
+        indent = body[: len(body) - len(stripped)]
+        has_following_key = True
+        break
+
+    comma = "," if has_following_key else ""
+    new_line = f'{indent}"{key}": {json.dumps(value)}{comma}{ending}'
+    lines.insert(brace_index + 1, new_line)
     return "".join(lines)
 
 
@@ -233,9 +301,24 @@ def _rewrite_config_file(rewrite):
         return False
 
 
-def write_config_token(key, value):
-    """Rewrite one key in the config file. True only when the bytes landed."""
-    return _rewrite_config_file(lambda text: rewrite_config_token(text, key, value))
+def write_config_token(key, value, insert_if_absent=False):
+    """Rewrite one key in the config file. True only when the bytes landed.
+
+    With insert_if_absent=True, a key on zero non-comment lines is inserted
+    after the opening brace instead of refusing. A key on two or more lines
+    still refuses either way: ambiguity is never resolved by guessing.
+    """
+    def rewrite(text):
+        updated = rewrite_config_token(text, key, value)
+        if updated is not None or not insert_if_absent:
+            return updated
+        lines = text.splitlines(keepends=True)
+        key_pattern = re.compile(_KEY_PATTERN.format(key=re.escape(key)))
+        if _config_key_lines(lines, key_pattern):
+            return None  # 1+ non-comment lines already claim the key
+        return insert_config_token(text, key, value)
+
+    return _rewrite_config_file(rewrite)
 
 
 def write_voice_and_language(voice, lang):
@@ -296,12 +379,20 @@ def speak_sample(voice, lang, timeout=PING_TIMEOUT, socket_override=None):
     `lang` is always sent: `speak` falls back to the daemon's own language, so
     a jf_* voice would otherwise be synthesized as American English. No `wait`
     key, so the daemon acknowledges at once and synthesizes afterwards.
+    `replace: true` so the sample is heard immediately rather than queuing
+    behind whatever is already pending.
+
+    Returns True on an ordinary accepted-and-played reply, False on any
+    failure to reach or be accepted by the daemon, and the SPEAK_HELD sentinel
+    when the daemon accepted and recorded the sample but did not play it
+    because output is held - a case the caller must not mistake for either.
     """
     payload = {
         "command": "speak",
         "text": f"This is {voice}.",
         "voice": voice,
         "lang": lang,
+        "replace": True,
     }
     try:
         reply = kokoro_daemon.request(
@@ -309,7 +400,82 @@ def speak_sample(voice, lang, timeout=PING_TIMEOUT, socket_override=None):
         )
     except (OSError, ValueError):
         return False
+    if not isinstance(reply, dict) or not reply.get("ok"):
+        return False
+    if reply.get("held"):
+        return SPEAK_HELD
+    return True
+
+
+def replay(entry_id, timeout=PING_TIMEOUT, socket_override=None):
+    """Ask the daemon to play back one history entry by id."""
+    try:
+        reply = kokoro_daemon.request(
+            {"command": "replay", "id": entry_id},
+            path=socket_override or resolved_socket(),
+            timeout=timeout,
+        )
+    except (OSError, ValueError):
+        return False
     return isinstance(reply, dict) and bool(reply.get("ok"))
+
+
+def set_hold(held, timeout=PING_TIMEOUT, socket_override=None):
+    """Engage or release hold. Returns the daemon's reported held state, or None on failure."""
+    try:
+        reply = kokoro_daemon.request(
+            {"command": "hold" if held else "release"},
+            path=socket_override or resolved_socket(),
+            timeout=timeout,
+        )
+    except (OSError, ValueError):
+        return None
+    if isinstance(reply, dict) and reply.get("ok"):
+        return bool(reply.get("held"))
+    return None
+
+
+def history(limit=15, timeout=PING_TIMEOUT, socket_override=None):
+    """Ask the daemon for its most recent entries, newest first. None on failure."""
+    try:
+        return kokoro_daemon.request(
+            {"command": "history", "limit": limit},
+            path=socket_override or resolved_socket(),
+            timeout=timeout,
+        )
+    except (OSError, ValueError):
+        return None
+
+
+def purge_history(timeout=PING_TIMEOUT, socket_override=None):
+    """Ask the daemon to delete every stored history entry."""
+    try:
+        reply = kokoro_daemon.request(
+            {"command": "purge"},
+            path=socket_override or resolved_socket(),
+            timeout=timeout,
+        )
+    except (OSError, ValueError):
+        return None
+    return reply if isinstance(reply, dict) and reply.get("ok") else None
+
+
+def history_label(text, limit=60):
+    """One line for a menu row: whitespace-collapsed, truncated with an ellipsis."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 1].rstrip() + "…"
+
+
+def format_megabytes(num_bytes):
+    """Decimal MB, one decimal place - matches Finder's units for the same tmp directory."""
+    return f"{num_bytes / 1_000_000:.1f} MB"
+
+
+def clear_history_label(count, num_bytes):
+    unit = "file" if count == 1 else "files"
+    return f"Clear history ({count} {unit}, {format_megabytes(num_bytes)})"
 
 
 def shutdown_and_wait(timeout=10.0, interval=0.25, socket_override=None):
@@ -407,10 +573,29 @@ def derive_status(ping_reply, child_alive, started_at, now=None):
     return STATUS_STOPPED
 
 
-def title_text(status, voice):
-    """The whole status line, which is the menu bar title itself."""
+# One extra character, not a word: the bar title is the widest custom item in
+# a bar already split by the notch and crowded on both sides, and macOS hides
+# an item outright rather than shrink it, so ", held" going back in would
+# reopen the exact problem the glyph-only title exists to fix. "‖" reads as
+# a pause bar on sight, close enough to "held" without spelling it out.
+HOLD_GLYPH = "‖"
+
+
+def title_text(status, held=False):
+    """The menu bar title itself: the status glyph, plus the hold glyph.
+
+    Everything else `title_text` used to spell out - the status word and the
+    voice - now lives in `status_line_text`, one click away in the dropdown
+    instead of permanently occupying scarce bar width.
+    """
     glyph = STATUS_GLYPHS.get(status, STATUS_GLYPHS[STATUS_STOPPED])
-    return f"{glyph} Kokoro ({status}, {voice or UNKNOWN_VOICE})"
+    return f"{glyph}{HOLD_GLYPH}" if held else glyph
+
+
+def status_line_text(status, voice, held=False):
+    """The full wording `title_text` used to render, now a disabled menu row."""
+    suffix = ", held" if held else ""
+    return f"Kokoro ({status}, {voice or UNKNOWN_VOICE}{suffix})"
 
 
 def voice_menu_entries():
@@ -434,6 +619,12 @@ class Snapshot:
     pid: int | None
     message: str | None
     stamp: float
+    fmt: str = UNKNOWN_FORMAT
+    held: bool = False
+    queued: int = 0
+    history_count: int = 0
+    history_bytes: int = 0
+    history: tuple = ()
 
 
 class KokoroMenuBarApp:
@@ -451,6 +642,7 @@ class KokoroMenuBarApp:
         self._snapshot = Snapshot(
             status=STATUS_STOPPED,
             voice=display_voice(config, None),
+            fmt=display_format(config, None),
             enabled=config_enabled(config),
             has_config=config is not None,
             pid=None,
@@ -459,6 +651,7 @@ class KokoroMenuBarApp:
         )
         self._rendered = None
         self._rendered_voice = None
+        self._rendered_fmt = None
         self._poll_busy = False
         self._action_busy = False
         # Every snapshot rebind is taken under this lock. A bare rebind is
@@ -475,15 +668,23 @@ class KokoroMenuBarApp:
 
         self.app = rumps.App(
             "Kokoro",
-            title=title_text(self._snapshot.status, self._snapshot.voice),
+            title=title_text(self._snapshot.status, self._snapshot.held),
             quit_button="Quit",
         )
 
         # Held as attributes, never looked up by key: changing an item's title
         # later leaves its dict key stale, and assigning over an existing key
         # is a silent no-op, so the menu is mutated in place and never rebuilt.
+        # No callback: this row is the label the bar title used to be, not an
+        # action, so it renders disabled rather than clickable.
+        self._status_line = rumps.MenuItem(
+            status_line_text(self._snapshot.status, self._snapshot.voice, self._snapshot.held),
+            callback=None,
+        )
         self._speaking = rumps.MenuItem("Speaking", callback=self._on_toggle_speaking)
         self._voice = rumps.MenuItem("Voice")
+        self._format = rumps.MenuItem("Format")
+        self._hold = rumps.MenuItem("Hold output", callback=self._on_toggle_hold)
         self._stop = rumps.MenuItem("Stop speaking now", callback=self._on_stop)
         self._restart = rumps.MenuItem("Restart daemon", callback=self._on_restart)
         self._error = rumps.MenuItem("", callback=None)  # callback=None greys it out
@@ -499,10 +700,40 @@ class KokoroMenuBarApp:
                 self._voice_items[name] = item
             self._voice[language] = language_item
 
+        self._format_items = {}
+        for value in ("wav", "ogg", "mp3"):
+            item = rumps.MenuItem(value, callback=self._make_format_callback(value))
+            self._format[value] = item
+            self._format_items[value] = item
+
+        # rumps' menu items cannot be rebuilt by key - assigning over an
+        # existing key is a silent no-op - so the History submenu's fifteen
+        # rows are fixed slots allocated once here and mutated in place on
+        # every render, the same pattern self._error already uses.
+        self._history = rumps.MenuItem("History")
+        self._history_items = []
+        for index in range(15):
+            item = rumps.MenuItem("", callback=None)
+            item.hidden = True
+            self._history[str(index)] = item
+            self._history_items.append(item)
+        self._history_empty = rumps.MenuItem("(no history)", callback=None)
+        self._history["(no history)"] = self._history_empty
+
+        self._clear_history = rumps.MenuItem(
+            "Clear history (0 files, 0.0 MB)", callback=self._on_clear_history
+        )
+
         # rumps appends the Quit button at run time, so it lands below these.
         self.app.menu = [
+            self._status_line,
             self._speaking,
             self._voice,
+            self._format,
+            None,
+            self._hold,
+            self._history,
+            self._clear_history,
             self._stop,
             None,
             self._restart,
@@ -520,12 +751,14 @@ class KokoroMenuBarApp:
     def _render(self, snap):
         if snap is self._rendered:
             return
-        self.app.title = title_text(snap.status, snap.voice)
+        self.app.title = title_text(snap.status, snap.held)
+        self._status_line.title = status_line_text(snap.status, snap.voice, snap.held)
         self._speaking.state = 1 if snap.enabled else 0
         # Driven off the snapshot on every render, so creating or deleting the
         # config file takes effect within a tick instead of needing a relaunch.
         self._speaking.hidden = not snap.has_config
         self._voice.hidden = not snap.has_config
+        self._format.hidden = not snap.has_config
         self._stop.set_callback(self._on_stop if snap.status == STATUS_WARM else None)
         self._restart.set_callback(
             None if snap.status == STATUS_RESTARTING else self._on_restart
@@ -534,9 +767,50 @@ class KokoroMenuBarApp:
             for name, item in self._voice_items.items():
                 item.state = 1 if name == snap.voice else 0
             self._rendered_voice = snap.voice
+        if snap.fmt != self._rendered_fmt:  # 3 items; cheap regardless, guarded to match voice
+            for value, item in self._format_items.items():
+                item.state = 1 if value == snap.fmt else 0
+            self._rendered_fmt = snap.fmt
+        self._render_history(snap)
+        self._hold.state = 1 if snap.held else 0
+        self._hold.title = f"Hold output ({snap.queued} queued)" if snap.queued else "Hold output"
+        self._hold.set_callback(self._on_toggle_hold if snap.status == STATUS_WARM else None)
+        self._clear_history.title = clear_history_label(snap.history_count, snap.history_bytes)
+        clear_active = snap.status == STATUS_WARM and snap.history_count > 0
+        self._clear_history.set_callback(self._on_clear_history if clear_active else None)
         self._error.title = snap.message or ""
         self._error.hidden = snap.message is None
         self._rendered = snap
+
+    def _render_history(self, snap):
+        entries = snap.history
+        if snap.status != STATUS_WARM:
+            for item in self._history_items:
+                item.hidden = True
+            self._history_empty.title = "(daemon not running)"
+            self._history_empty.hidden = False
+            return
+        if not entries:
+            for item in self._history_items:
+                item.hidden = True
+            self._history_empty.title = "(no history)"
+            self._history_empty.hidden = False
+            return
+        self._history_empty.hidden = True
+        for index, item in enumerate(self._history_items):
+            if index < len(entries):
+                item.title = history_label(entries[index].get("text", ""))
+                # The id, not the index: render is the one place a slot's
+                # title and the entry it names are set together, on the main
+                # thread, from this same `entries` list. Resolving it again
+                # later against self._snapshot would not be "fresher" - a
+                # poll can publish a reordered history before the next
+                # render even runs, so by click time the live snapshot can
+                # already disagree with the title still on screen.
+                item.set_callback(self._make_history_callback(entries[index].get("id")))
+                item.hidden = False
+            else:
+                item.hidden = True
 
     def _on_tick(self, _timer):
         self._render(self._snapshot)
@@ -548,12 +822,13 @@ class KokoroMenuBarApp:
     # Publishing. A snapshot is one attribute rebind, atomic under the GIL, so
     # a worker can hand the main thread a new view without a lock or a queue.
 
-    def _publish(self, status=None, message=None):
+    def _publish(self, status=None, message=None, held=None):
         with self._publish_lock:
             base = self._snapshot
             self._snapshot = dataclasses.replace(
                 base,
                 status=base.status if status is None else status,
+                held=base.held if held is None else held,
                 message=message,
                 stamp=time.monotonic(),
             )
@@ -570,8 +845,9 @@ class KokoroMenuBarApp:
             self._snapshot = dataclasses.replace(
                 base,
                 # Keep whatever the last ping reported rather than flashing "—"
-                # for a tick when the config itself names no voice.
+                # for a tick when the config itself names no voice or format.
                 voice=display_voice(config, {"voice": base.voice}),
+                fmt=display_format(config, {"format": base.fmt}),
                 enabled=config_enabled(config),
                 has_config=config is not None,
                 message=message,
@@ -590,12 +866,37 @@ class KokoroMenuBarApp:
             child = self._child
             child_alive = child is not None and child.poll() is None
             status = derive_status(reply, child_alive, self._started_at)
+            ok_reply = isinstance(reply, dict) and reply.get("ok")
+
+            # An older daemon predating this feature sends none of these
+            # fields, so every read goes through .get(..., default) and a
+            # cold or unreachable daemon carries the previous tick forward
+            # rather than flashing zeros.
+            held = bool(reply.get("held", False)) if ok_reply else previous.held
+            queued = reply.get("queued", 0) if ok_reply else previous.queued
+            history_count = reply.get("history_count", 0) if ok_reply else previous.history_count
+            history_bytes = reply.get("history_bytes", 0) if ok_reply else previous.history_bytes
+
+            # Only refetched when the count moved: a tick where nothing
+            # changed costs nothing beyond the ping already sent.
+            history_entries = previous.history
+            if ok_reply and history_count != previous.history_count:
+                hist_reply = history(limit=15)
+                if isinstance(hist_reply, dict) and hist_reply.get("ok"):
+                    history_entries = tuple(hist_reply.get("entries", ()))
+
             snap = Snapshot(
                 status=status,
                 voice=display_voice(config, reply),
+                fmt=display_format(config, reply),
                 enabled=config_enabled(config),
                 has_config=config is not None,
                 pid=reply.get("pid") if status == STATUS_WARM else None,
+                held=held,
+                queued=queued,
+                history_count=history_count,
+                history_bytes=history_bytes,
+                history=history_entries,
                 # Carried forward rather than cleared: a poll two seconds later
                 # would otherwise wipe an error before the user has opened the
                 # menu to read it. Actions clear it when they start.
@@ -645,6 +946,73 @@ class KokoroMenuBarApp:
         self._publish(message=None)
         if not stop_playback():
             self._publish(message="could not stop playback")
+
+    def _on_toggle_hold(self, _sender):
+        self._start_action(self._toggle_hold_worker)
+
+    def _toggle_hold_worker(self):
+        self._publish(message=None)
+        result = set_hold(not self._snapshot.held)
+        if result is None:
+            self._publish(message="could not update hold state")
+        else:
+            # Reports the daemon's own held field, not the value the click
+            # assumed, the same reasoning _publish_config already applies to
+            # the config file: a write that was refused never shows a change
+            # that did not land.
+            self._publish(held=result, message=None)
+
+    def _make_history_callback(self, entry_id):
+        """Close over the id `_render_history` bound this slot to, not its
+        index: the slot a click lands on is a screen position, but the entry
+        at that position can already have shifted by the time the callback
+        runs, and looking the position up again then would just re-read
+        whatever the live snapshot has moved on to - not what the title on
+        screen actually named."""
+        def callback(_sender):
+            self._start_action(lambda: self._replay_worker(entry_id))
+        return callback
+
+    def _replay_worker(self, entry_id):
+        self._publish(message=None)
+        if not any(entry.get("id") == entry_id for entry in self._snapshot.history):
+            return  # the entry is gone by the time the click resolved; nothing to replay
+        # stop first so the replayed line plays immediately instead of
+        # queueing behind whatever is already pending: asyncio.Queue has no
+        # front insertion.
+        stop_playback()
+        if not replay(entry_id):
+            self._publish(message="could not replay that line")
+
+    def _make_format_callback(self, value):
+        def callback(_sender):
+            self._start_action(lambda: self._format_worker(value))
+        return callback
+
+    def _format_worker(self, value):
+        self._publish(message=None)
+        if write_config_token("format", value, insert_if_absent=True):
+            self._publish_config(None)
+        else:
+            self._publish_config(f"could not update {config_path()}")
+
+    def _on_clear_history(self, _sender):
+        self._start_action(self._clear_history_worker)
+
+    def _clear_history_worker(self):
+        self._publish(message=None)
+        reply = purge_history()
+        if reply is None:
+            self._publish(message="could not clear history")
+            return
+        # Zeroed directly from the purge reply, rather than waiting for the
+        # next poll, so the label updates the instant the click resolves.
+        with self._publish_lock:
+            base = self._snapshot
+            self._snapshot = dataclasses.replace(
+                base, history_count=0, history_bytes=0, history=(),
+                message=None, stamp=time.monotonic(),
+            )
 
     def _on_restart(self, _sender):
         self._start_action(self._restart_worker)
@@ -705,9 +1073,15 @@ class KokoroMenuBarApp:
         # The write is what matters, so it is reported first and separately.
         # The sample is the audible confirmation, and a daemon that is not
         # running swallows it: say so rather than leave the user waiting for a
-        # voice that is never coming.
-        if speak_sample(name, code):
+        # voice that is never coming. A held reply is neither: the daemon
+        # accepted and recorded the sample but did not play it, which is
+        # distinct from both success and failure and must not be reported as
+        # either.
+        result = speak_sample(name, code)
+        if result is True:
             self._publish_config(None)
+        elif result == SPEAK_HELD:
+            self._publish_config(f"{name} saved, but output is held")
         else:
             self._publish_config(f"{name} saved, but the daemon is not speaking")
 

@@ -468,7 +468,7 @@ def test_stop_playback_passes_a_socket_override_through_to_request(stub_request)
     assert stub_request.calls[0]["path"] == "/tmp/km-stop.sock"
 
 
-def test_speak_sample_sends_lang_and_omits_wait(stub_request):
+def test_speak_sample_sends_lang_replace_and_omits_wait(stub_request):
     stub_request.response = {"ok": True}
     kokoro_menubar.speak_sample("jf_alpha", "j")
     payload = stub_request.calls[0]["payload"]
@@ -477,6 +477,7 @@ def test_speak_sample_sends_lang_and_omits_wait(stub_request):
         "text": "This is jf_alpha.",
         "voice": "jf_alpha",
         "lang": "j",
+        "replace": True,
     }
     assert "wait" not in payload
 
@@ -489,6 +490,235 @@ def test_speak_sample_false_on_a_falsy_ok(stub_request):
 def test_speak_sample_passes_a_socket_override_through_to_request(stub_request):
     kokoro_menubar.speak_sample("af_sky", "a", socket_override="/tmp/km-speak.sock")
     assert stub_request.calls[0]["path"] == "/tmp/km-speak.sock"
+
+
+def test_speak_sample_returns_the_held_sentinel_distinct_from_true_and_false(stub_request):
+    stub_request.response = {"ok": True, "held": True}
+    result = kokoro_menubar.speak_sample("af_sky", "a")
+    assert result == kokoro_menubar.SPEAK_HELD
+    assert result is not True
+    assert result is not False
+
+
+def test_speak_sample_true_when_ok_and_not_held(stub_request):
+    stub_request.response = {"ok": True}
+    assert kokoro_menubar.speak_sample("af_sky", "a") is True
+
+
+# --- replay, set_hold, history, purge_history: the new socket wrappers --------
+
+
+def test_replay_true_on_a_truthy_ok(stub_request):
+    stub_request.response = {"ok": True}
+    assert kokoro_menubar.replay("0007") is True
+    assert stub_request.calls[0]["payload"] == {"command": "replay", "id": "0007"}
+
+
+def test_replay_false_on_a_falsy_ok(stub_request):
+    stub_request.response = {"ok": False}
+    assert kokoro_menubar.replay("0007") is False
+
+
+def test_replay_false_on_oserror(stub_request):
+    stub_request.error = OSError()
+    assert kokoro_menubar.replay("0007") is False
+
+
+def test_replay_passes_a_socket_override_through_to_request(stub_request):
+    kokoro_menubar.replay("0007", socket_override="/tmp/km-replay.sock")
+    assert stub_request.calls[0]["path"] == "/tmp/km-replay.sock"
+
+
+def test_set_hold_returns_the_daemons_reported_held_field(stub_request):
+    stub_request.response = {"ok": True, "held": True}
+    assert kokoro_menubar.set_hold(True) is True
+    assert stub_request.calls[0]["payload"] == {"command": "hold"}
+
+
+def test_set_hold_sends_release_for_false(stub_request):
+    stub_request.response = {"ok": True, "held": False}
+    assert kokoro_menubar.set_hold(False) is False
+    assert stub_request.calls[0]["payload"] == {"command": "release"}
+
+
+def test_set_hold_none_on_a_falsy_ok(stub_request):
+    stub_request.response = {"ok": False}
+    assert kokoro_menubar.set_hold(True) is None
+
+
+def test_set_hold_none_on_oserror(stub_request):
+    stub_request.error = OSError()
+    assert kokoro_menubar.set_hold(True) is None
+
+
+def test_set_hold_passes_a_socket_override_through_to_request(stub_request):
+    stub_request.response = {"ok": True, "held": True}
+    kokoro_menubar.set_hold(True, socket_override="/tmp/km-hold.sock")
+    assert stub_request.calls[0]["path"] == "/tmp/km-hold.sock"
+
+
+def test_history_returns_the_reply_dict_on_success(stub_request):
+    stub_request.response = {"ok": True, "entries": [{"id": "1"}]}
+    assert kokoro_menubar.history() == {"ok": True, "entries": [{"id": "1"}]}
+    assert stub_request.calls[0]["payload"] == {"command": "history", "limit": 15}
+
+
+def test_history_honours_a_custom_limit(stub_request):
+    kokoro_menubar.history(limit=5)
+    assert stub_request.calls[0]["payload"] == {"command": "history", "limit": 5}
+
+
+def test_history_none_on_oserror(stub_request):
+    stub_request.error = OSError()
+    assert kokoro_menubar.history() is None
+
+
+def test_purge_history_returns_the_reply_dict_on_success(stub_request):
+    stub_request.response = {"ok": True, "removed": 3, "bytes": 900}
+    assert kokoro_menubar.purge_history() == {"ok": True, "removed": 3, "bytes": 900}
+    assert stub_request.calls[0]["payload"] == {"command": "purge"}
+
+
+def test_purge_history_none_on_a_falsy_ok(stub_request):
+    stub_request.response = {"ok": False}
+    assert kokoro_menubar.purge_history() is None
+
+
+def test_purge_history_none_on_oserror(stub_request):
+    stub_request.error = OSError()
+    assert kokoro_menubar.purge_history() is None
+
+
+# --- display_format: config outranks the ping reply ---------------------------
+
+
+def test_display_format_prefers_the_config_over_the_ping_reply():
+    assert kokoro_menubar.display_format({"format": "wav"}, {"format": "ogg"}) == "wav"
+
+
+def test_display_format_falls_back_to_the_ping_reply_when_the_config_names_none():
+    assert kokoro_menubar.display_format({"format": None}, {"format": "ogg"}) == "ogg"
+    assert kokoro_menubar.display_format({}, {"format": "ogg"}) == "ogg"
+    assert kokoro_menubar.display_format(None, {"format": "ogg"}) == "ogg"
+
+
+def test_display_format_placeholder_when_neither_source_names_one():
+    assert kokoro_menubar.display_format({}, {}) == kokoro_menubar.UNKNOWN_FORMAT
+    assert kokoro_menubar.display_format(None, None) == kokoro_menubar.UNKNOWN_FORMAT
+
+
+# --- history_label: truncate for a menu row ------------------------------------
+
+
+def test_history_label_collapses_internal_whitespace():
+    assert kokoro_menubar.history_label("hello   \n  world") == "hello world"
+
+
+def test_history_label_passes_text_at_or_under_the_limit_through_unchanged():
+    text = "x" * 60
+    assert kokoro_menubar.history_label(text) == text
+    text_59 = "x" * 59
+    assert kokoro_menubar.history_label(text_59) == text_59
+
+
+def test_history_label_truncates_longer_text_with_an_ellipsis():
+    text = "x" * 61
+    result = kokoro_menubar.history_label(text)
+    assert result == "x" * 59 + "…"
+    assert len(result) == 60
+
+
+# --- format_megabytes / clear_history_label ------------------------------------
+
+
+def test_format_megabytes_renders_decimal_mb_with_one_decimal_place():
+    assert kokoro_menubar.format_megabytes(0) == "0.0 MB"
+    assert kokoro_menubar.format_megabytes(1_000_000) == "1.0 MB"
+
+
+def test_clear_history_label_singular_and_plural_and_zero_state():
+    assert kokoro_menubar.clear_history_label(0, 0) == "Clear history (0 files, 0.0 MB)"
+    assert kokoro_menubar.clear_history_label(1, 500_000) == "Clear history (1 file, 0.5 MB)"
+    label = kokoro_menubar.clear_history_label(12, 290100)
+    assert label == f"Clear history (12 files, {kokoro_menubar.format_megabytes(290100)})"
+
+
+# --- insert_config_token: the new-key insertion path ---------------------------
+
+
+def test_insert_config_token_inserts_after_the_bare_opening_brace_with_matching_indentation():
+    text = '{\n  "voice": "af_sky"\n}\n'
+    updated = kokoro_menubar.insert_config_token(text, "format", "ogg")
+    assert updated == '{\n  "format": "ogg",\n  "voice": "af_sky"\n}\n'
+
+
+def test_insert_config_token_omits_the_trailing_comma_when_the_object_is_otherwise_empty():
+    text = "{\n}\n"
+    updated = kokoro_menubar.insert_config_token(text, "format", "ogg")
+    assert updated == '{\n  "format": "ogg"\n}\n'
+
+
+def test_insert_config_token_refuses_when_the_brace_shares_a_line_with_other_content():
+    text = '{"voice": "af_sky"}\n'
+    assert kokoro_menubar.insert_config_token(text, "format", "ogg") is None
+
+
+def test_insert_config_token_refuses_when_the_opening_brace_line_appears_more_than_once():
+    text = '{\n  "a":\n  {\n  }\n}\n'
+    assert kokoro_menubar.insert_config_token(text, "format", "ogg") is None
+
+
+def test_insert_config_token_preserves_crlf_endings():
+    text = '{\r\n  "voice": "af_sky"\r\n}\r\n'
+    updated = kokoro_menubar.insert_config_token(text, "format", "ogg")
+    assert updated == '{\r\n  "format": "ogg",\r\n  "voice": "af_sky"\r\n}\r\n'
+
+
+def test_insert_config_token_raises_typeerror_for_a_dict_value():
+    with pytest.raises(TypeError):
+        kokoro_menubar.insert_config_token("{\n}\n", "format", {"a": 1})
+
+
+# --- write_config_token(insert_if_absent=True): the Format submenu's write ----
+
+
+def test_write_config_token_inserts_a_new_key_when_absent_and_insert_if_absent_is_true(config_file):
+    config_file.write_text('{\n  "voice": "af_sky"\n}\n', encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg", insert_if_absent=True) is True
+    assert config_file.read_text(encoding="utf-8") == '{\n  "format": "ogg",\n  "voice": "af_sky"\n}\n'
+
+
+def test_write_config_token_still_refuses_two_conflicting_lines_with_insert_if_absent(config_file):
+    original = '{\n  "format": "wav",\n  "format": "mp3"\n}\n'
+    config_file.write_text(original, encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg", insert_if_absent=True) is False
+    assert config_file.read_text(encoding="utf-8") == original
+
+
+def test_write_config_token_default_insert_if_absent_false_still_refuses_on_absent_key(config_file):
+    config_file.write_text('{\n  "voice": "af_sky"\n}\n', encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg") is False
+    assert config_file.read_text(encoding="utf-8") == '{\n  "voice": "af_sky"\n}\n'
+
+
+def test_write_config_token_format_writes_when_exactly_one_line_claims_it(config_file):
+    """Mirrors the existing ambiguous/absent refusal already covered for
+    voice/language, for the new `format` key specifically."""
+    config_file.write_text('{\n  "format": "wav"\n}\n', encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg") is True
+    assert config_file.read_text(encoding="utf-8") == '{\n  "format": "ogg"\n}\n'
+
+
+def test_write_config_token_format_refuses_cleanly_on_two_lines_or_none(config_file):
+    two_lines = '{\n  "format": "wav",\n  "format": "mp3"\n}\n'
+    config_file.write_text(two_lines, encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg") is False
+    assert config_file.read_text(encoding="utf-8") == two_lines
+
+    no_line = '{\n  "voice": "af_sky"\n}\n'
+    config_file.write_text(no_line, encoding="utf-8")
+    assert kokoro_menubar.write_config_token("format", "ogg") is False
+    assert config_file.read_text(encoding="utf-8") == no_line
 
 
 # --- shutdown_and_wait ---------------------------------------------------------
@@ -621,20 +851,47 @@ def test_derive_status_stopped_with_no_child_and_no_start_time():
 # --- title_text -----------------------------------------------------------------
 
 
-def test_title_text_exact_format_for_warm():
-    assert kokoro_menubar.title_text("warm", "af_sky") == "● Kokoro (warm, af_sky)"
+def test_title_text_is_the_bare_glyph_for_warm():
+    assert kokoro_menubar.title_text("warm") == "●"
 
 
 def test_title_text_falls_back_to_the_stopped_glyph_for_an_unrecognized_status():
     # "restarting" is published straight into a Snapshot by the restart
     # worker but never returned by derive_status, so it has no glyph of its
-    # own; the status word itself still prints verbatim.
-    assert kokoro_menubar.title_text("restarting", "af_sky") == "○ Kokoro (restarting, af_sky)"
+    # own; it falls back to the stopped glyph like any other unknown status.
+    assert kokoro_menubar.title_text("restarting") == "○"
 
 
-def test_title_text_placeholder_for_an_unknown_voice():
-    assert kokoro_menubar.title_text("not running", None) == "○ Kokoro (not running, —)"
-    assert kokoro_menubar.title_text("not running", "") == "○ Kokoro (not running, —)"
+def test_title_text_held_appends_the_one_character_hold_glyph():
+    assert kokoro_menubar.title_text("warm", held=True) == "●" + kokoro_menubar.HOLD_GLYPH
+
+
+def test_title_text_held_defaults_to_false():
+    assert kokoro_menubar.title_text("warm") == "●"
+    assert kokoro_menubar.title_text("warm", held=False) == "●"
+
+
+# --- status_line_text ------------------------------------------------------------
+
+
+def test_status_line_text_exact_format_for_warm():
+    assert kokoro_menubar.status_line_text("warm", "af_sky") == "Kokoro (warm, af_sky)"
+
+
+def test_status_line_text_placeholder_for_an_unknown_voice():
+    assert kokoro_menubar.status_line_text("not running", None) == "Kokoro (not running, —)"
+    assert kokoro_menubar.status_line_text("not running", "") == "Kokoro (not running, —)"
+
+
+def test_status_line_text_held_variant_appends_the_suffix():
+    assert (
+        kokoro_menubar.status_line_text("warm", "af_sky", held=True)
+        == "Kokoro (warm, af_sky, held)"
+    )
+
+
+def test_status_line_text_held_defaults_to_false_and_matches_the_old_title_string():
+    assert kokoro_menubar.status_line_text("warm", "af_sky") == "Kokoro (warm, af_sky)"
 
 
 # --- voice_menu_entries -----------------------------------------------------------
@@ -795,6 +1052,21 @@ def test_a_voice_saved_with_a_working_daemon_reports_no_error(monkeypatch):
     assert app._snapshot.message is None
 
 
+def test_a_voice_saved_but_held_reports_that_distinctly(monkeypatch):
+    """A held reply is neither success nor failure and must read as its own
+    outcome, not as the daemon-is-not-speaking case True/False already cover."""
+    app = _bare_app()
+    monkeypatch.setattr(kokoro_menubar, "write_voice_and_language", lambda voice, lang: True)
+    monkeypatch.setattr(
+        kokoro_menubar, "speak_sample", lambda voice, lang: kokoro_menubar.SPEAK_HELD
+    )
+
+    app._voice_worker("j", "jf_alpha")
+    assert "jf_alpha" in app._snapshot.message
+    assert "held" in app._snapshot.message
+    assert "not speaking" not in app._snapshot.message
+
+
 # --- the app class, against a stubbed rumps ---------------------------------
 #
 # `kokoro_menubar` imports rumps inside the class body precisely so it can be
@@ -861,8 +1133,10 @@ def test_the_menu_is_built_with_every_voice_nested_under_its_language(fake_rumps
     assert len(languages) == 8
     total = sum(len(item.submenu) for item in languages.values())
     assert total == len(app._voice_items) == 44
-    # The separator before Restart is the one None in the menu list.
-    assert app.app.menu.count(None) == 1
+    assert len(app._format_items) == 3
+    assert len(app._history_items) == 15
+    # Two separators: after Format, and before Restart.
+    assert app.app.menu.count(None) == 2
     assert app.app.quit_button == "Quit"
 
 
@@ -922,10 +1196,30 @@ def test_the_error_row_appears_only_when_a_snapshot_carries_a_message(fake_rumps
     assert app._error.title == "daemon did not stop"
 
 
-def test_the_title_shows_the_glyph_state_and_voice(fake_rumps):
+def test_the_bar_title_is_the_bare_glyph_and_the_menu_carries_the_detail(fake_rumps):
     app = kokoro_menubar.KokoroMenuBarApp()
     app._render(dataclasses.replace(app._snapshot, status="warm", voice="af_sky", stamp=1.0))
-    assert app.app.title == "● Kokoro (warm, af_sky)"
+    assert app.app.title == "●"
+    assert app._status_line.title == "Kokoro (warm, af_sky)"
+
+
+def test_the_status_line_item_has_no_callback_so_it_renders_disabled(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="warm", voice="af_sky", stamp=1.0))
+    assert app._status_line.callback is None
+
+
+def test_the_status_line_is_the_first_item_in_the_menu(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    assert app.app.menu[0] is app._status_line
+    assert app.app.menu[1] is app._speaking
+
+
+def test_the_bar_title_appends_the_hold_glyph_when_held(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="warm", voice="af_sky", held=True, stamp=1.0))
+    assert app.app.title == "●" + kokoro_menubar.HOLD_GLYPH
+    assert app._status_line.title == "Kokoro (warm, af_sky, held)"
 
 
 def test_a_tick_never_starts_a_poll_while_an_action_is_running(fake_rumps, monkeypatch):
@@ -948,3 +1242,348 @@ def test_a_tick_never_starts_a_poll_while_an_action_is_running(fake_rumps, monke
 class _NullThread:
     def start(self):
         pass
+
+
+# --- Format submenu -----------------------------------------------------------
+
+
+def test_format_submenu_hidden_unless_there_is_a_config(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, has_config=False, stamp=1.0))
+    assert app._format.hidden is True
+    app._render(dataclasses.replace(app._snapshot, has_config=True, stamp=2.0))
+    assert app._format.hidden is False
+
+
+def test_only_the_current_format_is_checked(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, fmt="ogg", stamp=1.0))
+    checked = [value for value, item in app._format_items.items() if item.state == 1]
+    assert checked == ["ogg"]
+
+    app._render(dataclasses.replace(app._snapshot, fmt="wav", stamp=2.0))
+    checked = [value for value, item in app._format_items.items() if item.state == 1]
+    assert checked == ["wav"]
+
+
+# --- History submenu ------------------------------------------------------------
+
+
+def test_render_history_shows_daemon_not_running_placeholder_when_cold(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="not running", history=(), stamp=1.0))
+    assert app._history_empty.hidden is False
+    assert app._history_empty.title == "(daemon not running)"
+    assert all(item.hidden for item in app._history_items)
+
+
+def test_render_history_shows_no_history_placeholder_when_warm_and_empty(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="warm", history=(), stamp=1.0))
+    assert app._history_empty.hidden is False
+    assert app._history_empty.title == "(no history)"
+    assert all(item.hidden for item in app._history_items)
+
+
+def test_render_history_populates_slots_newest_first_and_hides_the_remainder(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    entries = tuple({"id": str(i), "text": f"line {i}"} for i in range(3))
+    app._render(dataclasses.replace(app._snapshot, status="warm", history=entries, stamp=1.0))
+    assert app._history_empty.hidden is True
+    for index, item in enumerate(app._history_items):
+        if index < 3:
+            assert item.hidden is False
+            assert item.title == f"line {index}"
+        else:
+            assert item.hidden is True
+
+
+def test_replay_worker_sends_stop_then_replay_with_the_bound_entry_id(
+    fake_rumps, monkeypatch
+):
+    """Per the resolved ruling: stop first, so a replayed line plays
+    immediately instead of queueing behind whatever is already pending."""
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(
+        app._snapshot, status="warm", history=({"id": "abc", "text": "hello"},), stamp=1.0
+    )
+    calls = []
+    monkeypatch.setattr(kokoro_menubar, "stop_playback", lambda **k: calls.append("stop") or True)
+    monkeypatch.setattr(
+        kokoro_menubar, "replay", lambda entry_id, **k: calls.append(("replay", entry_id)) or True
+    )
+
+    app._replay_worker("abc")
+
+    assert calls == ["stop", ("replay", "abc")]
+
+
+def test_replay_worker_is_a_noop_when_the_bound_id_is_no_longer_in_history(
+    fake_rumps, monkeypatch
+):
+    """Covers a purge or a trim off the end of the list landing between the
+    render that bound the id and the click resolving it: the id the user
+    clicked is simply gone, so there is nothing to interrupt or replay."""
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(app._snapshot, status="warm", history=(), stamp=1.0)
+    calls = []
+    monkeypatch.setattr(kokoro_menubar, "stop_playback", lambda **k: calls.append("stop") or True)
+    monkeypatch.setattr(
+        kokoro_menubar, "replay", lambda entry_id, **k: calls.append(("replay", entry_id)) or True
+    )
+
+    app._replay_worker("abc")
+
+    assert calls == []
+
+
+def test_replay_worker_reports_an_error_when_replay_fails(fake_rumps, monkeypatch):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(
+        app._snapshot, status="warm", history=({"id": "abc", "text": "hello"},), stamp=1.0
+    )
+    monkeypatch.setattr(kokoro_menubar, "stop_playback", lambda **k: True)
+    monkeypatch.setattr(kokoro_menubar, "replay", lambda entry_id, **k: False)
+
+    app._replay_worker("abc")
+
+    assert app._snapshot.message == "could not replay that line"
+
+
+def test_a_click_replays_the_id_that_was_on_screen_even_if_history_reordered_after_render(
+    fake_rumps, monkeypatch
+):
+    """The real risk in the fixed-slot pattern: a poll can publish a
+    reordered history after a render but before the next one - a dropdown
+    open and tracking the mouse does not tick - so by the time a click
+    resolves, self._snapshot can already disagree with what is on screen.
+    Binding the id at render time, not re-resolving it from the live
+    snapshot at click time, is what keeps the click and the title in sync.
+    """
+    app = kokoro_menubar.KokoroMenuBarApp()
+    rendered = (
+        {"id": "a", "text": "line A"},
+        {"id": "b", "text": "line B"},
+    )
+    app._render(dataclasses.replace(app._snapshot, status="warm", history=rendered, stamp=1.0))
+    clicked = app._history_items[1].callback  # bound while "line B" was on screen
+    assert app._history_items[1].title == "line B"
+
+    # A poll lands after the render, prepending a new line, with no
+    # re-render in between to catch the shift up.
+    reordered = (
+        {"id": "c", "text": "line C"},
+        {"id": "a", "text": "line A"},
+        {"id": "b", "text": "line B"},
+    )
+    app._snapshot = dataclasses.replace(app._snapshot, history=reordered, stamp=2.0)
+
+    calls = []
+    monkeypatch.setattr(kokoro_menubar, "stop_playback", lambda **k: calls.append("stop") or True)
+    monkeypatch.setattr(
+        kokoro_menubar, "replay", lambda entry_id, **k: calls.append(("replay", entry_id)) or True
+    )
+
+    clicked(None)
+    deadline = time.monotonic() + 5
+    while app._action_busy and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert calls == ["stop", ("replay", "b")]
+
+
+# --- Hold output ----------------------------------------------------------------
+
+
+def test_hold_checkbox_state_and_title_follow_the_snapshot(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="warm", held=False, queued=0, stamp=1.0))
+    assert app._hold.state == 0
+    assert app._hold.title == "Hold output"
+    assert app._hold.callback is not None
+
+    app._render(dataclasses.replace(app._snapshot, status="warm", held=True, queued=3, stamp=2.0))
+    assert app._hold.state == 1
+    assert app._hold.title == "Hold output (3 queued)"
+
+
+def test_hold_callback_is_greyed_out_unless_the_daemon_is_warm(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="not running", stamp=1.0))
+    assert app._hold.callback is None
+    app._render(dataclasses.replace(app._snapshot, status="warm", stamp=2.0))
+    assert app._hold.callback is not None
+
+
+def test_toggle_hold_worker_publishes_the_daemons_reported_state_not_the_assumed_one(
+    fake_rumps, monkeypatch
+):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(app._snapshot, held=False, stamp=1.0)
+    # The click assumes True (not held -> held), but the daemon reports False
+    # (a LaunchAgent restart re-read a persisted release, say); the checkbox
+    # must follow the daemon, not the click.
+    monkeypatch.setattr(kokoro_menubar, "set_hold", lambda held, **k: False)
+
+    app._toggle_hold_worker()
+
+    assert app._snapshot.held is False
+    assert app._snapshot.message is None
+
+
+def test_toggle_hold_worker_publishes_an_error_when_set_hold_fails(fake_rumps, monkeypatch):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(app._snapshot, held=False, stamp=1.0)
+    monkeypatch.setattr(kokoro_menubar, "set_hold", lambda held, **k: None)
+
+    app._toggle_hold_worker()
+
+    assert app._snapshot.message == "could not update hold state"
+
+
+# --- Clear history ---------------------------------------------------------------
+
+
+def test_clear_history_callback_gated_on_history_count_and_warm_status(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, status="warm", history_count=0, stamp=1.0))
+    assert app._clear_history.callback is None
+    app._render(dataclasses.replace(app._snapshot, status="not running", history_count=5, stamp=2.0))
+    assert app._clear_history.callback is None
+    app._render(dataclasses.replace(app._snapshot, status="warm", history_count=5, stamp=3.0))
+    assert app._clear_history.callback is not None
+
+
+def test_clear_history_label_reflects_the_snapshot(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._render(dataclasses.replace(app._snapshot, history_count=12, history_bytes=290100, stamp=1.0))
+    assert app._clear_history.title == kokoro_menubar.clear_history_label(12, 290100)
+
+
+def test_clear_history_worker_zeroes_counts_without_waiting_for_a_poll(fake_rumps, monkeypatch):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(
+        app._snapshot, history_count=5, history_bytes=12345, history=({"id": "1"},), stamp=1.0
+    )
+    monkeypatch.setattr(kokoro_menubar, "purge_history", lambda **k: {"ok": True, "removed": 5})
+
+    app._clear_history_worker()
+
+    assert app._snapshot.history_count == 0
+    assert app._snapshot.history_bytes == 0
+    assert app._snapshot.history == ()
+    assert app._snapshot.message is None
+
+
+def test_clear_history_worker_reports_an_error_on_failure(fake_rumps, monkeypatch):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    app._snapshot = dataclasses.replace(app._snapshot, history_count=5, stamp=1.0)
+    monkeypatch.setattr(kokoro_menubar, "purge_history", lambda **k: None)
+
+    app._clear_history_worker()
+
+    assert app._snapshot.message == "could not clear history"
+    assert app._snapshot.history_count == 5  # untouched on failure
+
+
+# --- a full snapshot rendering every new item at once ---------------------------
+
+
+def test_new_menu_items_render_from_a_single_ping_derived_snapshot(fake_rumps):
+    app = kokoro_menubar.KokoroMenuBarApp()
+    entries = ({"id": "1", "text": "first line"}, {"id": "2", "text": "second line"})
+    snap = dataclasses.replace(
+        app._snapshot,
+        has_config=True,
+        status="warm",
+        fmt="ogg",
+        held=True,
+        queued=2,
+        history_count=2,
+        history=entries,
+        stamp=1.0,
+    )
+    app._render(snap)
+
+    assert app._format.hidden is False
+    assert app._format_items["ogg"].state == 1
+    assert app._hold.state == 1
+    assert app._hold.title == "Hold output (2 queued)"
+    assert app._history_items[0].hidden is False
+    assert app._history_items[0].title == "first line"
+    assert app._history_items[1].title == "second line"
+    assert app._history_empty.hidden is True
+    assert app._clear_history.callback is not None
+
+
+# --- _poll_worker's conditional history refetch ---------------------------------
+
+
+def test_poll_worker_refetches_history_only_when_the_count_changed(monkeypatch):
+    app = _bare_app(_snapshot=dataclasses.replace(
+        kokoro_menubar.Snapshot(
+            status="warm", voice="af_sky", enabled=True, has_config=True,
+            pid=1, message=None, stamp=0.0,
+        ),
+        history_count=3, history=({"id": "1"},),
+    ))
+    calls = []
+
+    def fake_history(limit=15, **kwargs):
+        calls.append(limit)
+        return {"ok": True, "entries": [{"id": "2"}]}
+
+    monkeypatch.setattr(kokoro_menubar, "history", fake_history)
+    monkeypatch.setattr(
+        kokoro_menubar, "ping",
+        lambda *a, **k: {"ok": True, "pid": 1, "voice": "af_sky", "history_count": 3},
+    )
+
+    app._poll_worker()
+    assert calls == []
+    assert app._snapshot.history == ({"id": "1"},)
+
+    monkeypatch.setattr(
+        kokoro_menubar, "ping",
+        lambda *a, **k: {"ok": True, "pid": 1, "voice": "af_sky", "history_count": 4},
+    )
+    app._poll_worker()
+    assert calls == [15]
+    assert app._snapshot.history == ({"id": "2"},)
+
+
+def test_poll_worker_carries_forward_the_previous_daemon_fields_when_ping_fails(monkeypatch):
+    """An unreachable daemon must not flash zeros over a value the last
+    successful ping actually reported."""
+    app = _bare_app(_snapshot=dataclasses.replace(
+        kokoro_menubar.Snapshot(
+            status="warm", voice="af_sky", enabled=True, has_config=True,
+            pid=1, message=None, stamp=0.0,
+        ),
+        held=True, queued=2, history_count=3, history_bytes=900, history=({"id": "1"},),
+    ))
+    monkeypatch.setattr(kokoro_menubar, "ping", lambda *a, **k: None)
+
+    app._poll_worker()
+
+    assert app._snapshot.held is True
+    assert app._snapshot.queued == 2
+    assert app._snapshot.history_count == 3
+    assert app._snapshot.history_bytes == 900
+    assert app._snapshot.history == ({"id": "1"},)
+
+
+def test_poll_worker_reads_the_new_ping_fields_via_get_with_defaults(monkeypatch):
+    """An older daemon that predates these fields must not raise or crash the
+    poll: every read goes through .get(..., default), never [...]."""
+    app = _bare_app()
+    monkeypatch.setattr(
+        kokoro_menubar, "ping", lambda *a, **k: {"ok": True, "pid": 1, "voice": "af_heart"}
+    )
+
+    app._poll_worker()
+
+    assert app._snapshot.held is False
+    assert app._snapshot.queued == 0
+    assert app._snapshot.history_count == 0
+    assert app._snapshot.history_bytes == 0
