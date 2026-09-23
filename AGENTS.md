@@ -40,7 +40,9 @@ The default test suite mocks the Kokoro model. Real synthesis is opt-in, downloa
 pytest -m integration tests/integration -s
 ```
 
-On headless Linux, GUI tests need a display:
+GUI tests build a real `TTSApp` but withdraw it before it is mapped, so a run never puts windows on screen or takes focus. Set `KOKORO_TEST_SHOW_GUI=1` to show them while debugging a GUI test.
+
+On headless Linux, GUI tests still need a display, because Tk cannot start without one:
 
 ```bash
 xvfb-run -a pytest

@@ -250,6 +250,19 @@ def tts_app(tmp_path, monkeypatch):
     monkeypatch.setattr(gui, "filedialog", MagicMock())
     (tmp_path / "custom_voices").mkdir()
 
+    # Keep the window off screen: withdraw it the moment the Tk root exists,
+    # before TTSApp.__init__ reaches update_idletasks() and maps it, so a test
+    # run never flashes windows or takes focus. KOKORO_TEST_SHOW_GUI=1 shows
+    # them again for debugging.
+    if not os.environ.get("KOKORO_TEST_SHOW_GUI"):
+        ctk_init = gui.ctk.CTk.__init__
+
+        def hidden_init(self, *args, **kwargs):
+            ctk_init(self, *args, **kwargs)
+            self.withdraw()
+
+        monkeypatch.setattr(gui.ctk.CTk, "__init__", hidden_init)
+
     # Creating many real Tk() interpreters across a test session intermittently
     # hits the same WindowsApps init.tcl read glitch as above - retry a few
     # times rather than failing the whole test on a transient hiccup.
