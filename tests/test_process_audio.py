@@ -32,6 +32,39 @@ def test_trim_silence_removes_leading_trailing_silence(engine):
     assert len(trimmed) < len(untrimmed)
 
 
+def test_trim_silence_fades_the_cut_edges_to_zero(engine):
+    # The trim cuts at the first and last sample above its threshold, so
+    # without a fade the clip starts and ends on a step from digital silence,
+    # which normalize then amplifies into an audible pop at each line boundary.
+    sr = 24000
+    silence = np.zeros(int(sr * 0.2))
+    tone = _sine(duration_s=0.5, amp=0.5)
+    audio = np.concatenate([silence, tone, silence])
+
+    out = engine.process_audio(audio.copy(), sr, {"trim_silence": True, "normalize": True})
+
+    assert abs(out[0]) < 1e-3
+    assert abs(out[-1]) < 1e-3
+    assert np.abs(out).max() > 0.9
+
+
+def test_trim_silence_keeps_the_quiet_release_after_the_last_loud_sample(engine):
+    # Speech decays for 100-200 ms below the trim threshold after its last
+    # loud sample. Cutting there chops the last word's release, which plays
+    # as a pop at the end of every line even with a short fade.
+    sr = 24000
+    silence = np.zeros(int(sr * 0.5))
+    tone = _sine(duration_s=0.5, amp=0.5)
+    release = _sine(duration_s=0.1, amp=0.005)
+    audio = np.concatenate([silence, tone, release, silence])
+
+    out = engine.process_audio(audio.copy(), sr, {"trim_silence": True})
+
+    assert len(out) >= len(tone) + len(release)
+    assert len(out) < len(audio)
+    assert abs(out[-1]) < 1e-3
+
+
 def test_volume_scales_amplitude(engine):
     audio = _sine(amp=0.4)
     out = engine.process_audio(audio.copy(), 24000, {"volume": 0.5})

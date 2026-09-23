@@ -246,9 +246,20 @@ class KokoroEngine:
             # Find first index > threshold
             mask = np.abs(audio) > threshold
             if np.any(mask):
-                start = np.argmax(mask)
-                end = len(audio) - np.argmax(mask[::-1])
-                audio = audio[start:end]
+                # Speech keeps decaying below the threshold for 100-200 ms
+                # after its last loud sample, so keep a margin past it rather
+                # than chopping the last word's release.
+                start = max(0, np.argmax(mask) - int(sr * 0.01))
+                end = min(len(audio), len(audio) - np.argmax(mask[::-1]) + int(sr * 0.15))
+                audio = audio[start:end].copy()
+                # Ramp both ends to zero: a hard edge plays as a pop, and
+                # normalize below would amplify it.
+                fade_in = min(int(sr * 0.005), len(audio) // 2)
+                fade_out = min(int(sr * 0.05), len(audio) // 2)
+                if fade_in > 0:
+                    audio[:fade_in] *= np.linspace(0.0, 1.0, fade_in, dtype=audio.dtype)
+                if fade_out > 0:
+                    audio[-fade_out:] *= np.linspace(1.0, 0.0, fade_out, dtype=audio.dtype)
 
         # 2. Volume / Gain
         vol = config.get('volume', 1.0)
